@@ -23,7 +23,7 @@ const menu = {
             "3. Outros Apps"
         ]
     },
-    pix: "000.000.000-00 (Sua Chave Pix Aqui)",
+    pix: "219d1eea-47da-4bd1-b9c0-624ad5ca41d6",
     suporte: "https://wa.me/5511996554229"
 };
 
