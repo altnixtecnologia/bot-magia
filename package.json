@@ -1,0 +1,14 @@
+{
+  "name": "bot-magia",
+  "version": "1.0.0",
+  "description": "Bot de Vendas e Teste Automatico",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0",
+    "axios": "^1.6.0"
+  }
+}
