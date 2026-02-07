@@ -4,17 +4,31 @@ const axios = require('axios');
 const PANEL_CONFIG = {
     // Coloque a URL do painel (ex: http://painel.exemplo.com)
     // NÃO coloque /api_reseller.php no final, o código já faz isso.
-    url: 'http://url-do-seu-painel.com', 
-    username: 'SEU_USUARIO_REVENDEDOR',
-    password: 'SUA_SENHA_REVENDEDOR'
+    url: process.env.PANEL_URL, 
+    username: process.env.PANEL_USER,
+    password: process.env.PANEL_PASSWORD,
+    apiPath: process.env.PANEL_API_PATH || 'api_reseller.php' // Padrão é 'api_reseller.php', mas pode ser 'panel_api.php'
 };
 
 async function gerarTeste() {
     try {
-        // Monta a URL padrão para painéis Xtream/Sigma
-        const apiUrl = `${PANEL_CONFIG.url}/api_reseller.php?action=create_trial&username=${PANEL_CONFIG.username}&password=${PANEL_CONFIG.password}`;
+        // Tratamento da URL para evitar erros comuns (barras extras ou inclusão do api_reseller.php no .env)
+        let baseUrl = PANEL_CONFIG.url ? PANEL_CONFIG.url.trim() : '';
         
-        console.log("Tentando gerar teste..."); // Log para ajudar a ver erros na VPS
+        // Remove barra final se existir
+        if (baseUrl.endsWith('/')) {
+            baseUrl = baseUrl.slice(0, -1);
+        }
+        
+        // Se o usuário acidentalmente colocou o caminho da API no .env, removemos para não duplicar
+        if (baseUrl.endsWith(`/${PANEL_CONFIG.apiPath}`)) {
+            baseUrl = baseUrl.replace(`/${PANEL_CONFIG.apiPath}`, '');
+        }
+
+        // Monta a URL padrão para painéis Xtream/Sigma
+        const apiUrl = `${baseUrl}/${PANEL_CONFIG.apiPath}?action=create_trial&username=${PANEL_CONFIG.username}&password=${PANEL_CONFIG.password}`;
+        
+        console.log(`Tentando gerar teste em: ${baseUrl}/${PANEL_CONFIG.apiPath}`); 
 
         const response = await axios.get(apiUrl);
         const data = response.data;
@@ -37,7 +51,17 @@ async function gerarTeste() {
         }
 
     } catch (error) {
-        console.error('Erro de conexão com o painel:', error.message);
+        if (error.response) {
+            // O servidor respondeu com um status de erro (4xx, 5xx)
+            console.error(`❌ Erro retornado pelo painel: Status ${error.response.status}`);
+            console.error('Detalhes:', error.response.data);
+        } else if (error.request) {
+            // A requisição foi feita mas não houve resposta
+            console.error('❌ Erro de conexão: Nenhuma resposta recebida do painel. Verifique a URL, porta e se o servidor está online.');
+        } else {
+            // Algo deu errado ao configurar a requisição
+            console.error('❌ Erro ao configurar a requisição:', error.message);
+        }
         return { sucesso: false };
     }
 }

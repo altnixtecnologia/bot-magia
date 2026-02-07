@@ -1,0 +1,16 @@
+PANEL_URL=https://sitepainel.com/
+PANEL_USER=usuario
+PANEL_PASSWORD=senha
+SUPABASE_URL=https://yftikqosmgpfzoacrwxz.supabase.co
+SUPABASE_KEY=seyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdGlrcW9zbWdwZnpvYWNyd3h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5OTgzMDksImV4cCI6MjA3NjU3NDMwOX0.mcIm3auQNIfPw_CZ9tEqBxfU-Rj3Yl5BNzzyGyhfI2o
+MAGIC_LINK_BASE_URL=https://painel-deploy.vercel.app/status.html
+ADMIN_WPP_NUMBER=554891004780
+PANEL_API_PATH=panel_api.php
+PANEL_API_PATH=api.php
+SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlmdGlrcW9zbWdwZnpvYWNyd3h6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDk5ODMwOSwiZXhwIjoyMDc2NTc0MzA5fQ.UpgqMxrdrDutJGP70bp0jZbI_nhFHL7JMBdmvqDTAUo
+API_PORT=3000
+API_TOKEN="MAG-creFfLbyZIO5zO5yjRQlGFc2afH2xUU3luz19JG" 
+
+------------------------------
+senha secreta para proteger a execução da sua função
+FUNCTION_SECRET:MAG-Qu3PzfDXNe0ciREPyP6ESWwdaWQKgt51yXJ3QCy
