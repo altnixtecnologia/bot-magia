@@ -5,6 +5,7 @@ const messages = require('./messages');
 const axios = require('axios');
 const catalog = require('./catalog');
 const sigmaChatbot = require('./sigmaChatbot');
+const { confirmActivationPayment } = require('./stages');
 
 const MAGIC_LINK_BASE_URL = process.env.MAGIC_LINK_BASE_URL ||
     'https://painel-deploy.vercel.app/status.html';
@@ -162,13 +163,46 @@ async function sendWhatsApp(client, phone, message) {
     const digits = sanitizePhone(phone);
     if (!digits) return false;
     try {
-        const chatId = `${digits}@c.us`;
+        let chatId = `${digits}@c.us`;
+        if (client && typeof client.getNumberId === 'function') {
+            try {
+                const numberId = await client.getNumberId(chatId);
+                if (numberId && numberId._serialized) chatId = numberId._serialized;
+            } catch {
+                // ignore
+            }
+        }
         await client.sendMessage(chatId, message);
         return true;
     } catch (e) {
         console.error('[Notify] Erro ao enviar WhatsApp:', e.message);
         return false;
     }
+}
+
+function buildPhoneCandidates(digits) {
+    const set = new Set();
+    const add = (v) => {
+        const d = String(v || '').replace(/\D/g, '');
+        if (d) set.add(d);
+    };
+    add(digits);
+    const s = String(digits || '');
+    if (s.startsWith('55') && s.length > 11) add(s.slice(2));
+    if (!s.startsWith('55') && (s.length === 10 || s.length === 11)) add(`55${s}`);
+    return Array.from(set);
+}
+
+function tryConfirmActivationForPhone(digits) {
+    const candidates = buildPhoneCandidates(digits);
+    for (const cand of candidates) {
+        const res = confirmActivationPayment(`${cand}@c.us`);
+        if (res && res.ok) return { ok: true, phone: cand, message: res.message };
+    }
+    const res = confirmActivationPayment(`${String(digits || '')}@c.us`);
+    return res && res.ok
+        ? { ok: true, phone: String(digits || ''), message: res.message }
+        : { ok: false, error: (res && res.error) ? res.error : 'Ativacao pendente nao encontrada.' };
 }
 
 async function fetchClientsByIds(clientIds) {
@@ -364,7 +398,7 @@ async function checkPayments(client, state) {
 
     const { data, error } = await supabase
         .from('payments')
-        .select('id, client_id, amount, paid_at, status')
+        .select('id, client_id, amount, paid_at, status, type, source')
         .in('status', ['received', 'confirmed'])
         .gte('paid_at', since)
         .order('paid_at', { ascending: false })
@@ -386,6 +420,21 @@ async function checkPayments(client, state) {
     for (const payment of pending) {
         const clientRow = clientMap.get(payment.client_id);
         if (!clientRow) continue;
+
+        const type = payment.type ? String(payment.type) : 'renewal';
+        if (type === 'activation') {
+            const res = tryConfirmActivationForPhone(clientRow.phone || '');
+            if (!res.ok) {
+                console.error(`[Activation] Falha pagamento ${payment.id}: ${res.error}`);
+                continue;
+            }
+            const sent = await sendWhatsApp(client, res.phone, res.message);
+            if (sent) {
+                state.payments[payment.id] = new Date().toISOString();
+                saveState(state);
+            }
+            continue;
+        }
 
         const autoRenew = await tryAutoRenew(payment, clientRow);
         if (!autoRenew.ok) {

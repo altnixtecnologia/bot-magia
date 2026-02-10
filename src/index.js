@@ -2,7 +2,7 @@ require('dotenv').config();
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');
-const { processMessage, updateStage, updateStageWithError } = require('./stages');
+const { processMessage, updateStage, updateStageWithError, confirmActivationPayment } = require('./stages');
 const { gerarTeste } = require('./api');
 const messages = require('./messages');
 const menu = require('./menu');
@@ -10,6 +10,7 @@ const notifications = require('./notifications');
 const sigmaChatbot = require('./sigmaChatbot');
 const trialLimits = require('./trialLimits');
 const supportLocks = require('./supportLocks');
+const supabaseFunctions = require('./supabaseFunctions');
 
 function parseAdminNumbers() {
     const raw = process.env.ADMIN_WPP_NUMBERS || process.env.ADMIN_WPP_NUMBER || '';
@@ -18,6 +19,39 @@ function parseAdminNumbers() {
         .map((p) => p.replace(/\D/g, ''))
         .filter((p) => p.length >= 10);
     return Array.from(new Set(digits));
+}
+
+function buildPhoneCandidates(digits) {
+    const set = new Set();
+    const add = (v) => {
+        const d = String(v || '').replace(/\D/g, '');
+        if (d && d.length >= 10) set.add(d);
+    };
+    add(digits);
+    if (digits && !String(digits).startsWith('55') && (String(digits).length === 10 || String(digits).length === 11)) {
+        add(`55${digits}`);
+    }
+    if (digits && String(digits).startsWith('55') && String(digits).length > 11) {
+        add(String(digits).slice(2));
+    }
+    return Array.from(set);
+}
+
+async function resolveChatIdForNumber(client, digits) {
+    const candidates = buildPhoneCandidates(digits);
+    for (const cand of candidates) {
+        const chatId = `${cand}@c.us`;
+        try {
+            if (client && typeof client.getNumberId === 'function') {
+                const numberId = await client.getNumberId(chatId);
+                if (numberId && numberId._serialized) return numberId._serialized;
+            }
+            return chatId;
+        } catch {
+            // tenta o proximo candidato
+        }
+    }
+    return `${digits}@c.us`;
 }
 
 function pickRandomItems(items, count) {
@@ -127,6 +161,36 @@ if (!API_TOKEN) {
         }
     });
 
+    app.post('/confirm-activation', async (req, res) => {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || authHeader !== `Bearer ${API_TOKEN}`) {
+            return res.status(403).json({ error: 'Acesso não autorizado.' });
+        }
+
+        const { to } = req.body || {};
+        if (!to) {
+            return res.status(400).json({ error: 'O campo \"to\" é obrigatório.' });
+        }
+
+        const digits = String(to).replace(/\D/g, '');
+        if (digits.length < 10) {
+            return res.status(400).json({ error: 'Telefone inválido.' });
+        }
+
+        const result = confirmActivationPayment(`${digits}@c.us`);
+        if (!result.ok) {
+            return res.status(400).json({ error: result.error });
+        }
+
+        try {
+            const chatId = await resolveChatIdForNumber(client, digits);
+            await client.sendMessage(chatId, result.message);
+            return res.status(200).json({ success: true });
+        } catch (e) {
+            return res.status(500).json({ error: e.message || 'Falha ao enviar mensagem.' });
+        }
+    });
+
     app.listen(API_PORT, () => {
         console.log(`🚀 API de notificações rodando na porta ${API_PORT}`);
     });
@@ -200,6 +264,26 @@ client.on('message', async (message) => {
                     await client.sendMessage(message.from, `✅ Aviso enviado (3 dias) para ${digits}`);
                 } else {
                     await client.sendMessage(message.from, `Erro: ${result.error}`);
+                }
+            }
+            return;
+        }
+        if (body.startsWith('confirmar ') || body.startsWith('confirma ')) {
+            const digits = bodyRaw.replace(/^\S+\s+/, '').replace(/\D/g, '');
+            if (!digits) {
+                await client.sendMessage(message.from, 'Uso: confirmar 5511999999999');
+            } else {
+                const result = confirmActivationPayment(`${digits}@c.us`);
+                if (!result.ok) {
+                    await client.sendMessage(message.from, `Erro: ${result.error}`);
+                    return;
+                }
+                try {
+                    const chatId = await resolveChatIdForNumber(client, digits);
+                    await client.sendMessage(chatId, result.message);
+                    await client.sendMessage(message.from, `✅ Confirmado e liberado: ${digits}`);
+                } catch (e) {
+                    await client.sendMessage(message.from, `Erro ao enviar para o cliente: ${e.message}`);
                 }
             }
             return;
@@ -286,6 +370,16 @@ client.on('message', async (message) => {
                     await client.sendMessage(message.from, msgTeste);
                     if (options && options.trial && options.trial.serverKey) {
                         const phone = userJid.replace('@c.us', '').replace(/\D/g, '');
+                        const reg = await supabaseFunctions.registerService({
+                            phone,
+                            service_key: options.trial.serverKey,
+                            login: teste.usuario || null,
+                            password: teste.senha || null,
+                            notes: 'Teste criado pelo bot'
+                        });
+                        if (!reg.ok) {
+                            console.error('[register-service] Falha:', reg.error);
+                        }
                         await trialLimits.recordUserServer(phone, options.trial.serverKey);
                     }
                     updateStage(userJid, 0);
@@ -312,7 +406,10 @@ client.on('message', async (message) => {
             await client.sendMessage(message.from, result.action.copiaECola);
 
             // Envia a instrução final após todas as outras mensagens
-            await client.sendMessage(message.from, 'Após o pagamento, por favor, envie o comprovante.');
+            await client.sendMessage(
+                message.from,
+                result.action.postMessage || 'Após o pagamento, por favor, envie o comprovante.'
+            );
         }
 
         // Ação para notificar sobre uma nova ativação de app
@@ -342,6 +439,33 @@ client.on('message', async (message) => {
                     }
                 }
                 console.log(`✅ Notificação de ativação enviada para admins.`);
+            }
+        }
+        if (result.action && result.action.type === 'notify_activation_receipt') {
+            if (adminDigitsList.length) {
+                const { app, valor, receipt } = result.action.data || {};
+                const notificationText = (messages.fluxos.notificacaoComprovanteAtivacao || 'Comprovante recebido.')
+                    .replace('{nome}', name)
+                    .replace('{numero}', userJid.split('@')[0])
+                    .replace('{app}', app || '-')
+                    .replace('{valor}', (typeof valor === 'number') ? `R$ ${valor.toFixed(2)}` : (valor ? String(valor) : '-'));
+
+                for (const adminDigits of adminDigitsList) {
+                    const adminChatId = `${adminDigits}@c.us`;
+                    await client.sendMessage(adminChatId, notificationText);
+                }
+
+                if (receipt && receipt.hasMedia) {
+                    try {
+                        const media = await receipt.downloadMedia();
+                        for (const adminDigits of adminDigitsList) {
+                            const adminChatId = `${adminDigits}@c.us`;
+                            await client.sendMessage(adminChatId, media, { caption: `Comprovante de ${name} (Ativacao ${app || '-'})` });
+                        }
+                    } catch (e) {
+                        console.error('[Ativacao] Falha ao encaminhar comprovante:', e.message);
+                    }
+                }
             }
         }
 

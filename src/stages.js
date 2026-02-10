@@ -5,6 +5,8 @@ const trialLimits = require('./trialLimits');
 const supabase = require('./supabaseClient');
 const axios = require('axios');
 const activationData = require('./activation_data');
+const activationPending = require('./activationPending');
+const supabaseFunctions = require('./supabaseFunctions');
 const { QrCodePix } = require('qrcode-pix');
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS (AJUSTADO PARA SUA ESTRUTURA) ---
@@ -105,7 +107,9 @@ if (typeof cleanupInterval.unref === 'function') {
 }
 
 function getGreeting() {
-    const hour = new Date().getHours();
+    const offsetMinutes = Number(process.env.BOT_TZ_OFFSET_MINUTES ?? process.env.BUSINESS_TZ_OFFSET_MINUTES ?? '-180');
+    const shifted = Date.now() + offsetMinutes * 60000;
+    const hour = new Date(shifted).getUTCHours();
     if (hour >= 5 && hour < 12) return messages.saudacao.manha;
     if (hour >= 12 && hour < 18) return messages.saudacao.tarde;
     if (hour >= 18 || hour < 24) return messages.saudacao.noite;
@@ -159,26 +163,117 @@ async function shortenUrl(longUrl, customAlias = '') {
     }
 
     try {
-        console.log(`[URL Shortener] Tentando encurtar com o alias '${customAlias}'`);
         const response = await axios.get(apiUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36' }
         });
         
         if (response.data && !response.data.startsWith('Error:')) {
-            console.log(`[URL Shortener] Sucesso: ${response.data}`);
             return response.data;
-        } else {
-            console.warn(`[URL Shortener] Alias '${customAlias}' falhou: ${response.data}. Tentando com um aleatório.`);
-            const randomApiUrl = `https://is.gd/create.php?format=simple&url=${encodedUrl}`;
-            const randomResponse = await axios.get(randomApiUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36' }
-            });
-            return (randomResponse.data && !randomResponse.data.startsWith('Error:')) ? randomResponse.data : longUrl;
         }
+
+        const randomApiUrl = `https://is.gd/create.php?format=simple&url=${encodedUrl}`;
+        const randomResponse = await axios.get(randomApiUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36' }
+        });
+        if (randomResponse.data && !randomResponse.data.startsWith('Error:')) {
+            return randomResponse.data;
+        }
+
+        // Fallback: TinyURL
+        const tinyUrlApi = `https://tinyurl.com/api-create.php?url=${encodedUrl}`;
+        const tinyResponse = await axios.get(tinyUrlApi, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36' }
+        });
+        return (tinyResponse.data && !tinyResponse.data.startsWith('Error:'))
+            ? tinyResponse.data
+            : longUrl;
     } catch (error) {
-        console.error('[URL Shortener] Erro crítico ao encurtar URL:', error.message);
         return longUrl; // Retorna a URL original em caso de falha crítica.
     }
+}
+
+function buildActivationDataPrompt(tempData) {
+    const isClouddy = tempData && tempData.type === 'clouddy';
+    const prompt = isClouddy ? 'o e-mail da sua conta Clouddy' : 'o código MAC do seu dispositivo';
+    const helpText = isClouddy ? '' : '\n\nSe não souber onde encontrar, digite *AJUDA*.';
+    return `Pagamento confirmado! ✅\n\nAgora, por favor, digite ${prompt}.${helpText}\n(Ou digite *V* ou *0* para cancelar)`;
+}
+
+function confirmActivationPayment(from) {
+    const state = getUserState(from);
+    const phoneDigits = getPhoneDigits(from);
+
+    if (state && state.tempData && state.stage === 8) {
+        // ok, fluxo em memoria
+    } else {
+        const pending = activationPending.get(phoneDigits);
+        if (pending && pending.payload) {
+            state.tempData = pending.payload;
+            state.tempData.receiptMessage = null;
+            state.stage = 8;
+        } else {
+            return { ok: false, error: 'Nenhuma ativacao pendente para este numero.' };
+        }
+    }
+
+    const msg = buildActivationDataPrompt(state.tempData);
+    updateStage(from, 9);
+    activationPending.clear(phoneDigits);
+    return { ok: true, message: msg };
+}
+
+async function findClientForPhone(phoneDigits) {
+    if (!supabase) return { ok: false, error: 'Supabase nao configurado.' };
+    const cleanPhone = String(phoneDigits || '').replace(/\D/g, '');
+    if (!cleanPhone) return { ok: false, error: 'Telefone invalido.' };
+
+    const phoneVariations = [cleanPhone];
+    if (cleanPhone.startsWith('55')) {
+        const ddd = cleanPhone.substring(2, 4);
+        if (cleanPhone.length === 12) {
+            const number = cleanPhone.substring(4);
+            phoneVariations.push(`55${ddd}9${number}`);
+        } else if (cleanPhone.length === 13 && cleanPhone.charAt(4) === '9') {
+            const number = cleanPhone.substring(5);
+            phoneVariations.push(`55${ddd}${number}`);
+        }
+    }
+
+    const { data, error } = await supabase
+        .from(DB_CONFIG.TABLE)
+        .select(`id, cpf_cnpj, ${DB_CONFIG.COL_TOKEN}`)
+        .in(DB_CONFIG.COL_PHONE, phoneVariations)
+        .limit(1);
+
+    if (error) return { ok: false, error: 'Falha ao buscar cliente no Supabase.' };
+    if (!data || !data.length) return { ok: false, error: 'Cliente nao encontrado.' };
+    return { ok: true, client: data[0] };
+}
+
+async function createAsaasPixForActivation(from, tempData, cpfCnpj = null) {
+    const phoneDigits = getPhoneDigits(from);
+    const found = await findClientForPhone(phoneDigits);
+    if (!found.ok) return { ok: false, error: found.error };
+
+    const client = found.client;
+    const amount = Number(tempData && tempData.valor ? tempData.valor : 0);
+    if (!amount || amount <= 0) return { ok: false, error: 'Valor invalido.' };
+
+    const payload = {
+        source: 'bot',
+        type: 'activation',
+        renewDays: 0,
+        amount,
+        client_id: client.id,
+        status_token: client[DB_CONFIG.COL_TOKEN] || null,
+        cpf_cnpj: cpfCnpj || client.cpf_cnpj || null,
+        description: tempData && tempData.app ? `Ativacao ${tempData.app}` : 'Ativacao de app'
+    };
+
+    const res = await supabaseFunctions.createPix(payload);
+    if (!res.ok) return res;
+
+    return { ok: true, data: res.data };
 }
 
 async function processMessage(from, messageObject, contactName) {
@@ -320,7 +415,7 @@ async function processMessage(from, messageObject, contactName) {
         case 1: // Menu Principal
             switch (msg) {
                 case '1':
-                    response = `${menu.tv.titulo}\n\n${menu.tv.opcoes.join('\n')}\n\nDigite *T* para Teste, ou digite *V* ou *0* para voltar ao menu principal.`;
+                    response = `${menu.tv.titulo}\n\n${menu.tv.opcoes.join('\n')}\n\nDigite *2* para Teste, ou digite *V* ou *0* para voltar ao menu principal.`;
                     updateStage(from, 2);
                     break;
                 case '2':
@@ -343,6 +438,7 @@ async function processMessage(from, messageObject, contactName) {
                     response = `${menu.apps.titulo}\n\n${appListText}\n\nPor favor, digite o *número* do aplicativo que deseja ativar ou digite *V* ou *0* para voltar.`;
                     updateStage(from, 5);
                     break;
+                case '5':
                 case 't':
                     response = messages.fluxos.textoLivre;
                     state.textModeStartedAt = now;
@@ -365,6 +461,7 @@ async function processMessage(from, messageObject, contactName) {
                 case 'v': // Voltar
                     state.stage = 0; // Força um reinício para mostrar o menu principal
                     return processMessage(from, { body: 'menu' }, contactName);
+                case '2':
                 case 't':
                     state.tempData = { flow: 'trial' };
                     response = buildTrialDevicePrompt();
@@ -375,7 +472,7 @@ async function processMessage(from, messageObject, contactName) {
                         state.stage = 0;
                         return processMessage(from, messageObject, contactName);
                     }
-                    response = `${messages.menu.opcaoInvalida}\n\nDigite *T* para gerar um Teste, ou digite *V* ou *0* para voltar ao menu principal.`;
+                    response = `${messages.menu.opcaoInvalida}\n\nDigite *2* para gerar um Teste, ou digite *V* ou *0* para voltar ao menu principal.`;
                     break;
             }
             break;
@@ -645,7 +742,44 @@ async function processMessage(from, messageObject, contactName) {
                     }
                     const { app, valor } = state.tempData;
 
-                    // Validação para evitar erros
+                    // Preferir cobranca via Asaas (confirmacao automatica via webhook + polling)
+                    const asaas = await createAsaasPixForActivation(from, state.tempData, state.tempData.cpf_cnpj || null);
+                    if (asaas.ok && asaas.data && asaas.data.pix) {
+                        const pix = asaas.data.pix;
+                        action = {
+                            type: 'send_pix_qr',
+                            qrCode: pix.encodedImage,
+                            copiaECola: pix.payload,
+                            postMessage: 'Após o pagamento, aguarde a confirmação automática por aqui.'
+                        };
+                        response = `Geramos o PIX para ativação do *${app}*.\n\n` +
+                            `Vou te enviar o QR Code e o código "Copia e Cola".\n\n` +
+                            `Depois do pagamento, é só aguardar a confirmação automática.`;
+
+                        activationPending.set(getPhoneDigits(from), {
+                            app: state.tempData.app,
+                            valor: state.tempData.valor,
+                            type: state.tempData.type
+                        });
+                        state.tempData.awaitingPaymentConfirm = true;
+                        updateStage(from, 8);
+                        break;
+                    }
+
+                    if (!asaas.ok && String(asaas.error || '').toLowerCase().includes('client')) {
+                        response = "Nao encontrei seu cadastro para gerar a cobranca automatica.\n\nVou te encaminhar para o suporte para concluir a ativacao.";
+                        action = { type: 'notify_support', origin: 'Ativacao de Apps - Cliente nao encontrado' };
+                        updateStage(from, 4);
+                        break;
+                    }
+
+                    if (!asaas.ok && String(asaas.error || '').toLowerCase().includes('cpf')) {
+                        response = "Para gerar a cobrança PIX, preciso do seu CPF/CNPJ.\n\nDigite apenas números (11 ou 14 dígitos).\n\n(Digite *V* ou *0* para cancelar)";
+                        updateStage(from, 71);
+                        break;
+                    }
+
+                    // Fallback: PIX manual (sem confirmacao automatica)
                     if (!activationData.chave_pix || !valor) {
                         console.error("[PIX] Chave ou Valor ausentes nos dados temporários.");
                         response = "Erro técnico ao gerar o pagamento. Por favor, chame o suporte.";
@@ -656,10 +790,9 @@ async function processMessage(from, messageObject, contactName) {
                     const qrCodePix = QrCodePix({
                         version: '01',
                         key: activationData.chave_pix,
-                        // Normaliza e limita os campos para seguir o padrão do Banco Central
                         name: (activationData.nome_beneficiario || 'Altnix').normalize("NFD").replace(/[\u0300-\u036f]/g, "").substring(0, 25),
                         city: (activationData.cidade_beneficiario || 'SC').normalize("NFD").replace(/[\u0300-\u036f]/g, "").substring(0, 15),
-                        message: `Ativacao ${app}`.substring(0, 40), // Mensagem pode ser um pouco maior
+                        message: `Ativacao ${app}`.substring(0, 40),
                         value: valor,
                     });
 
@@ -668,7 +801,7 @@ async function processMessage(from, messageObject, contactName) {
 
                     action = { type: 'send_pix_qr', qrCode: qrCodeBase64, copiaECola: copiaECola };
                     response = `Geramos o PIX para ativação do *${app}*.\n\n` +
-                               `Vou te enviar o QR Code como imagem e o código "Copia e Cola" a seguir.`;
+                        `Vou te enviar o QR Code como imagem e o código "Copia e Cola" a seguir.`;
                     updateStage(from, 8);
                 } catch (error) {
                     console.error('[PIX Error] Falha ao gerar o código PIX:', error);
@@ -683,6 +816,30 @@ async function processMessage(from, messageObject, contactName) {
             }
             break;
 
+        case 71: // Coleta CPF/CNPJ (para gerar PIX Asaas)
+            if (msg === '0' || msg === 'v') {
+                response = "Ativação cancelada.\n\n" + messages.menu.principal;
+                updateStage(from, 1);
+                break;
+            }
+            if (!state.tempData) {
+                response = "Sessão expirada. Vamos começar novamente.\n\n" + messages.menu.principal;
+                updateStage(from, 1);
+                break;
+            }
+            {
+                const digits = messageObject.body.replace(/\D/g, '');
+                if (!(digits.length === 11 || digits.length === 14)) {
+                    response = "CPF/CNPJ inválido. Digite apenas números (11 ou 14 dígitos).\n\n(Digite *V* ou *0* para cancelar)";
+                    updateStage(from, 71);
+                    break;
+                }
+                state.tempData.cpf_cnpj = digits;
+                response = "Ok! Agora digite *1* para gerar o QR Code PIX ou digite *V* ou *0* para cancelar.";
+                updateStage(from, 7);
+            }
+            break;
+
         case 8: // Aguardando comprovante
             if (!state.tempData) {
                 response = "Sessão expirada. Vamos começar novamente.\n\n" + messages.menu.principal;
@@ -692,17 +849,32 @@ async function processMessage(from, messageObject, contactName) {
             if (messageObject.hasMedia) {
                 // Armazena a mensagem com o comprovante para uso posterior
                 state.tempData.receiptMessage = messageObject;
-                // Pergunta o dado correto baseado no tipo do app (MAC ou Email)
-                const isClouddy = state.tempData.type === 'clouddy';
-                const prompt = isClouddy ? 'o e-mail da sua conta Clouddy' : 'o código MAC do seu dispositivo';
-                const helpText = isClouddy ? '' : '\n\nSe não souber onde encontrar, digite *AJUDA*.';
-                response = `Comprovante recebido! ✅\n\nAgora, por favor, digite ${prompt}.${helpText}\n(Ou digite *V* ou *0* para cancelar)`;
-                updateStage(from, 9); // Próximo estágio: coletar MAC/Email
+                state.tempData.receiptReceivedAt = now;
+                state.tempData.awaitingPaymentConfirm = true;
+                // Persiste o pedido para permitir confirmacao via webhook/API mesmo apos restart
+                activationPending.set(getPhoneDigits(from), {
+                    app: state.tempData.app,
+                    valor: state.tempData.valor,
+                    type: state.tempData.type
+                });
+                response = "Comprovante recebido! ✅\n\nAgora aguarde a confirmação do pagamento. Assim que confirmarmos, eu vou pedir o MAC/Email.\n\n(Digite *V* ou *0* para cancelar)";
+                action = {
+                    type: 'notify_activation_receipt',
+                    data: {
+                        app: state.tempData.app,
+                        valor: state.tempData.valor,
+                        receipt: messageObject
+                    }
+                };
+                updateStage(from, 8);
             } else if (msg === '0' || msg === 'v') {
                 response = "Ativação cancelada.\n\n" + messages.menu.principal;
+                activationPending.clear(getPhoneDigits(from));
                 updateStage(from, 1);
             } else {
-                response = messages.fluxos.aguardandoComprovante;
+                response = state.tempData && state.tempData.awaitingPaymentConfirm
+                    ? "Aguardando a confirmação do pagamento.\n\n(Digite *V* ou *0* para cancelar)"
+                    : messages.fluxos.aguardandoComprovante;
                 // Mantém no mesmo estágio
             }
             break;
@@ -730,7 +902,7 @@ async function processMessage(from, messageObject, contactName) {
                     data: {
                         app: app,
                         mac: finalData, // Contém o MAC ou o Email digitado
-                        receipt: receiptMessage // A mensagem original com o comprovante
+                        receipt: receiptMessage || null // A mensagem original com o comprovante (pode ser null)
                     }
                 };
                 response = "Obrigado! Todas as informações foram enviadas para nossa equipe. Sua ativação será processada em breve. 👨‍💻\n\nDigite *0* para voltar ao menu principal.";
@@ -775,4 +947,4 @@ async function processMessage(from, messageObject, contactName) {
     return { text: response, action: action };
 }
 
-module.exports = { processMessage, updateStage, updateStageWithError };
+module.exports = { processMessage, updateStage, updateStageWithError, confirmActivationPayment };

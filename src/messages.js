@@ -12,7 +12,7 @@ const messages = {
         multiplosDispositivos: "Olá *{nome}*! Identifiquei que você possui mais de um dispositivo associado a este número. Para qual deles você gostaria de ver as informações?\n\n{lista_dispositivos}\n\nPor favor, digite o número correspondente ou *V*/*0* para voltar."
     },
     menu: {
-        principal: "Escolha uma opção abaixo:\n\n1️⃣ - Ver Planos de TV\n2️⃣ - Teste Grátis Automático ⚡\n3️⃣ - Falar com Suporte\n4️⃣ - Ativação de Apps\nT️⃣ - Escrever uma mensagem\n\n(Digite *S* a qualquer momento para encerrar)",
+        principal: "Escolha uma opção abaixo:\n\n1️⃣ - Ver Planos de TV\n2️⃣ - Teste Grátis Automático ⚡\n3️⃣ - Falar com Suporte\n4️⃣ - Ativação de Apps\n5️⃣ - Escrever uma mensagem\n\n(Digite *S* a qualquer momento para encerrar)",
         voltar: "Voltando ao menu principal...",
         opcaoInvalida: "Opção inválida. Por favor, escolha uma das opções do menu.",
         sair: "Atendimento finalizado. Se precisar, é só chamar novamente! 👋"
@@ -27,6 +27,7 @@ const messages = {
         erroTeste: "❌ Ops! O sistema de testes está instável. Por favor, chame o suporte (Opção 3).",
         notificacaoSuporte: "⚠️ *Alerta de Suporte* ⚠️\n\nO cliente *{nome}* ({numero}) solicitou atendimento vindo da área: *{origem}*.",
         notificacaoTexto: "💬 *Mensagem do cliente* 💬\n\nNome: *{nome}*\nNúmero: *{numero}*\nMensagem: {mensagem}",
+        notificacaoComprovanteAtivacao: "🧾 *Comprovante de Ativação Recebido*\n\nCliente: *{nome}* ({numero})\nApp: *{app}*\nValor: *{valor}*\n\nAguardando confirmação do pagamento.\nPara liberar e pedir o MAC/Email, use: `confirmar {numero}`",
         notificacaoAtivacao: "🚀 *Nova Ativação de App* 🚀\n\nCliente: *{nome}* ({numero})\nApp: *{app}*\nMAC/ID: `{mac}`\n\nO comprovante de pagamento foi enviado a seguir.",
         aguardandoComprovante: "Estou aguardando o comprovante (imagem ou PDF). Se preferir, digite *V* ou *0* para voltar ao menu.",
         tutorialMac: "🔍 *Como encontrar o MAC/ID do seu aplicativo?*\n\nNa maioria dos aplicativos, como *IBO Player*, *VU Player*, *Bob Player*, etc., as informações que precisamos (*MAC* e às vezes uma *Key* ou *Chave*) aparecem logo na *tela inicial* quando você abre o aplicativo.\n\nProcure por algo como:\n- *Device ID* / *ID do Dispositivo*\n- *Device Key* / *Chave do Dispositivo*\n- *Endereço MAC*\n\n*Exemplo:*\nMAC: `A1:B2:C3:D4:E5:F6`\nKey: `7A8B9C0D1E2F`\n\nPor favor, digite o código que aparece na sua tela. Se tiver dificuldades, pode nos mandar uma foto da tela do aplicativo."
