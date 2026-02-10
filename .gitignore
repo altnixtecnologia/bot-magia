@@ -7,4 +7,5 @@ logs/
 data/notification_state.json
 data/sigma_state.json
 data/trial_limits.json
+data/support_locks.json
 config/sigma_servers.local.json

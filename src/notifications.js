@@ -178,6 +178,22 @@ async function fetchClientService(clientId) {
     return data && data.length ? data[0] : null;
 }
 
+async function fetchClientByPhone(phone) {
+    if (!supabase) return null;
+    const digits = sanitizePhone(phone);
+    if (!digits) return null;
+    const { data, error } = await supabase
+        .from('launcher_config')
+        .select('id, client_name, phone, expiration_date, status_token, status, is_trial')
+        .eq('phone', digits)
+        .limit(1);
+    if (error) {
+        console.error('[Notify] Erro ao buscar cliente por telefone:', error.message);
+        return null;
+    }
+    return data && data.length ? data[0] : null;
+}
+
 function addMonths(baseDate, months) {
     const d = new Date(baseDate.getTime());
     const m = d.getMonth() + Number(months || 0);
@@ -421,6 +437,54 @@ function cleanupState(state) {
     clean(state.due);
 }
 
+async function sendManualDueMessage(client, phone, daysAhead = 3) {
+    if (!supabase) return { ok: false, error: 'Supabase nao configurado.' };
+    const digits = sanitizePhone(phone);
+    if (!digits) return { ok: false, error: 'Telefone invalido.' };
+
+    const row = await fetchClientByPhone(digits);
+    if (!row) return { ok: false, error: 'Cliente nao encontrado.' };
+    if (!row.status_token) return { ok: false, error: 'Cliente sem status_token.' };
+
+    const days = Number(daysAhead);
+    if (Number.isNaN(days)) return { ok: false, error: 'Dias invalidos.' };
+
+    const exp = new Date();
+    exp.setDate(exp.getDate() + days);
+    const expDateStr = dateOnly(exp);
+    const expBr = formatDateBr(expDateStr);
+
+    let template = null;
+    if (days === 0) {
+        template = messages.notificacoesVencimento?.venceHoje;
+    } else if (days < 0) {
+        template = messages.notificacoesVencimento?.vencido;
+        if (template && days !== -2) {
+            template = template.replace('há 2 dias', `há ${Math.abs(days)} dias`);
+        }
+    } else {
+        template = messages.notificacoesVencimento?.preVencimento;
+        if (template && days !== 5) {
+            template = template.replace('5 dias', `${days} dias`);
+        }
+    }
+
+    if (!template) return { ok: false, error: 'Template de vencimento nao encontrado.' };
+
+    const longLink = `${MAGIC_LINK_BASE_URL}?t=${row.status_token}`;
+    const aliasSeed = String(row.status_token || '')
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .slice(-8);
+    const link = await shortenUrl(longLink, aliasSeed);
+    const text = template
+        .replace('{nome}', row.client_name || 'Cliente')
+        .replace('{data_vencimento}', expBr)
+        .replace('{link}', link);
+
+    const sent = await sendWhatsApp(client, digits, text);
+    return sent ? { ok: true } : { ok: false, error: 'Falha ao enviar mensagem.' };
+}
+
 function start(client) {
     if (!NOTIFY_ENABLED) {
         console.log('[Notify] Agendador desativado via NOTIFY_ENABLED=false');
@@ -462,4 +526,4 @@ function start(client) {
     );
 }
 
-module.exports = { start };
+module.exports = { start, sendManualDueMessage };

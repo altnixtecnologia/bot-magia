@@ -9,6 +9,7 @@ const menu = require('./menu');
 const notifications = require('./notifications');
 const sigmaChatbot = require('./sigmaChatbot');
 const trialLimits = require('./trialLimits');
+const supportLocks = require('./supportLocks');
 
 function pickRandomItems(items, count) {
     const list = Array.isArray(items) ? items.filter(Boolean) : [];
@@ -150,6 +151,74 @@ client.on('message', async (message) => {
     if (adminDigits && userDigits === adminDigits) {
         const bodyRaw = message.body.trim();
         const body = bodyRaw.toLowerCase();
+        if (body.startsWith('pausar ') || body.startsWith('pause ')) {
+            const digits = bodyRaw.replace(/^\S+\s+/, '').replace(/\D/g, '');
+            if (!digits) {
+                await client.sendMessage(message.from, 'Uso: pausar 5511999999999');
+            } else {
+                const locked = supportLocks.lockPhone(digits);
+                if (locked.ok) {
+                    updateStage(`${digits}@c.us`, 4);
+                    await client.sendMessage(message.from, `✅ Pausado: ${digits}`);
+                } else {
+                    await client.sendMessage(message.from, `Erro: ${locked.message}`);
+                }
+            }
+            return;
+        }
+        if (body.startsWith('vencimento ') || body.startsWith('vence ') || body.startsWith('aviso ')) {
+            const parts = bodyRaw.trim().split(/\s+/);
+            const digits = parts[1] ? parts[1].replace(/\D/g, '') : '';
+            const days = parts[2] ? Number(parts[2]) : 3;
+            if (!digits) {
+                await client.sendMessage(message.from, 'Uso: vencimento 5511999999999 3');
+            } else {
+                const result = await notifications.sendManualDueMessage(client, digits, days);
+                if (result.ok) {
+                    await client.sendMessage(message.from, `✅ Aviso enviado (${days} dias) para ${digits}`);
+                } else {
+                    await client.sendMessage(message.from, `Erro: ${result.error}`);
+                }
+            }
+            return;
+        }
+        if (body.startsWith('venc3')) {
+            const digits = bodyRaw.replace(/^\S+\s*/, '').replace(/\D/g, '');
+            if (!digits) {
+                await client.sendMessage(message.from, 'Uso: venc3 5511999999999');
+            } else {
+                const result = await notifications.sendManualDueMessage(client, digits, 3);
+                if (result.ok) {
+                    await client.sendMessage(message.from, `✅ Aviso enviado (3 dias) para ${digits}`);
+                } else {
+                    await client.sendMessage(message.from, `Erro: ${result.error}`);
+                }
+            }
+            return;
+        }
+        if (body.startsWith('liberar ') || body.startsWith('unpause ')) {
+            const digits = bodyRaw.replace(/^\S+\s+/, '').replace(/\D/g, '');
+            if (!digits) {
+                await client.sendMessage(message.from, 'Uso: liberar 5511999999999');
+            } else {
+                const unlocked = supportLocks.unlockPhone(digits);
+                if (unlocked.ok) {
+                    updateStage(`${digits}@c.us`, 0);
+                    await client.sendMessage(message.from, `✅ Liberado: ${digits}`);
+                } else {
+                    await client.sendMessage(message.from, `Erro: ${unlocked.message}`);
+                }
+            }
+            return;
+        }
+        if (body === 'pausados' || body === 'pausos' || body === 'locks') {
+            const list = supportLocks.listLocked();
+            const text = list.length
+                ? `Pausados (${list.length}):\n` + list.join('\n')
+                : 'Nenhum numero pausado.';
+            await client.sendMessage(message.from, text);
+            return;
+        }
         if (body.startsWith('servidor ') || body.startsWith('server ')) {
             const parts = bodyRaw.split(' ');
             const key = parts.slice(1).join(' ').trim();
@@ -169,6 +238,10 @@ client.on('message', async (message) => {
             await client.sendMessage(message.from, `Servidores: ${listText}\nAtivo: ${active ?? '-'}`);
             return;
         }
+    }
+
+    if (supportLocks.isLocked(userDigits)) {
+        return;
     }
 
     // Trava para impedir processamento concorrente para o mesmo usuário
