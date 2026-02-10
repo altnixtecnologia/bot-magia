@@ -138,8 +138,20 @@ async function shortenUrl(longUrl, customAlias = '') {
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
             }
         });
-        return (randomResponse.data && !randomResponse.data.startsWith('Error:'))
-            ? randomResponse.data
+        if (randomResponse.data && !randomResponse.data.startsWith('Error:')) {
+            return randomResponse.data;
+        }
+
+        // Fallback: TinyURL
+        const tinyUrlApi = `https://tinyurl.com/api-create.php?url=${encodedUrl}`;
+        const tinyResponse = await axios.get(tinyUrlApi, {
+            headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+            }
+        });
+        return (tinyResponse.data && !tinyResponse.data.startsWith('Error:'))
+            ? tinyResponse.data
             : longUrl;
     } catch (e) {
         return longUrl;
