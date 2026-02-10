@@ -134,19 +134,37 @@ async function createTrialOnServer(serverKey, planKey = 'trial') {
 
     const url = `${server.baseUrl.replace(/\/$/, '')}/api/chatbot/${server.chatbotId}/${packageId}`;
     try {
-        const headers = { 'Content-Type': 'application/json' };
+        const headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            // Alguns painéis bloqueiam requests sem User-Agent.
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        };
         if (server.token) {
             headers.Authorization = `Bearer ${server.token}`;
         }
 
-        const res = await axios.post(url, {}, {
-            headers,
-            timeout: 15000
-        });
-        return { ok: true, data: res.data };
+        try {
+            const res = await axios.post(url, {}, {
+                headers,
+                timeout: 15000
+            });
+            return { ok: true, data: res.data };
+        } catch (e) {
+            const status = e.response ? e.response.status : null;
+            // Alguns painéis expõem esse endpoint como GET (link direto), não POST.
+            if (status === 404 || status === 405) {
+                const res = await axios.get(url, { headers, timeout: 15000 });
+                return { ok: true, data: res.data };
+            }
+            throw e;
+        }
     } catch (e) {
+        const status = e.response ? e.response.status : null;
         const detail = e.response ? e.response.data : e.message;
-        return { ok: false, error: detail || 'Falha ao gerar teste Sigma.' };
+        const payload = (typeof detail === 'string') ? detail : JSON.stringify(detail);
+        return { ok: false, error: `HTTP ${status || '-'}: ${payload || 'Falha ao gerar teste Sigma.'}` };
     }
 }
 

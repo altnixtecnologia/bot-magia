@@ -48,8 +48,10 @@ async function gerarTeste(options = null) {
                 : await sigmaChatbot.createTrial(packageHint);
             if (sigmaResult.ok && sigmaResult.data) {
                 const payload = sigmaResult.data;
+                const label = serverKey ? getServerLabel(serverKey) : null;
                 return {
                     sucesso: true,
+                    servidor: label || sigmaKey || 'Sigma',
                     usuario: payload.username || '-',
                     senha: payload.password || '-',
                     url: payload.dns || payload.payUrl || PANEL_CONFIG.url,
@@ -72,8 +74,10 @@ async function gerarTeste(options = null) {
                     const retry = await sigmaChatbot.createTrialOnServer(candidateSigmaKey, packageHint);
                     if (retry.ok && retry.data) {
                         const payload = retry.data;
+                        const label = getServerLabel(candidate) || candidate;
                         return {
                             sucesso: true,
+                            servidor: label,
                             usuario: payload.username || '-',
                             senha: payload.password || '-',
                             url: payload.dns || payload.payUrl || PANEL_CONFIG.url,

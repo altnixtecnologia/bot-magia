@@ -23,7 +23,7 @@ const messages = {
         textoLivre: "Perfeito! Pode escrever sua mensagem agora. Eu vou encaminhar para nossa equipe. 📝\n\nPara voltar ao menu, digite *V* ou *0*.",
         textoLivreConfirmacao: "Mensagem enviada! ✅\n\nSe quiser continuar escrevendo, é só mandar outra. Para voltar ao menu, digite *V* ou *0*.",
         apps: "Entendido! Para ativação de aplicativos, os valores podem variar.\n\nPor favor, aguarde um momento que um atendente irá te passar o valor atualizado e a chave PIX para pagamento. 👨‍💻",
-        fimTeste: "✅ *Teste Gerado com Sucesso!*\n\n👤 Usuário: *{usuario}*\n🔑 Senha: *{senha}*\n🌐 URL: {url}\n📅 Vencimento: {vencimento}\n\nBom divertimento!",
+        fimTeste: "✅ *Teste Gerado com Sucesso!*\n\n🛰️ Servidor: *{servidor}*\n👤 Usuário: *{usuario}*\n🔑 Senha: *{senha}*\n🌐 URL: {url}\n📅 Vencimento: {vencimento}\n\nBom divertimento!",
         erroTeste: "❌ Ops! O sistema de testes está instável. Por favor, chame o suporte (Opção 3).",
         notificacaoSuporte: "⚠️ *Alerta de Suporte* ⚠️\n\nO cliente *{nome}* ({numero}) solicitou atendimento vindo da área: *{origem}*.",
         notificacaoTexto: "💬 *Mensagem do cliente* 💬\n\nNome: *{nome}*\nNúmero: *{numero}*\nMensagem: {mensagem}",

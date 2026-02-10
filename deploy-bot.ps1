@@ -17,6 +17,7 @@ function Assert-Command($name) {
 
 Assert-Command git
 Assert-Command ssh
+Assert-Command scp
 
 git status --short
 
@@ -46,11 +47,24 @@ if (-not $SshKey) {
 $sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new")
 
 $remote = "$VpsUser@$VpsHost"
-$remoteCmd = "cd $VpsPath && git fetch --all && git reset --hard origin/main && git clean -fd && git pull --ff-only && pm2 restart $Pm2App --silent"
+$remoteGitCmd = "cd $VpsPath && git fetch --all && git reset --hard origin/main && git clean -fd && git pull --ff-only"
+$remoteRestartCmd = "cd $VpsPath && pm2 restart $Pm2App --silent"
+$localSigmaConfig = Join-Path $PSScriptRoot "config\sigma_servers.local.json"
+$remoteSigmaConfig = "$VpsPath/config/sigma_servers.local.json"
 
 $confirm = Read-Host "Subir para a VPS agora? (S/N) (isso descarta alterações locais na VPS)"
 if ($confirm -match '^[sS]') {
-    & ssh @sshArgs $remote $remoteCmd
+    & ssh @sshArgs $remote $remoteGitCmd
+
+    # Sincroniza configs locais (não versionadas) para a VPS.
+    if (Test-Path $localSigmaConfig) {
+        Write-Host "Enviando sigma_servers.local.json para a VPS..."
+        & scp @sshArgs $localSigmaConfig "${remote}:$remoteSigmaConfig"
+    } else {
+        Write-Host "Aviso: config\\sigma_servers.local.json não existe localmente; pulando sync."
+    }
+
+    & ssh @sshArgs $remote $remoteRestartCmd
 } else {
     Write-Host "Deploy na VPS cancelado."
 }

@@ -136,6 +136,7 @@ client.on('message', async (message) => {
                 const teste = await gerarTeste(options);
                 if (teste.sucesso) {
                     const msgTeste = messages.fluxos.fimTeste
+                        .replace('{servidor}', teste.servidor || '-')
                         .replace('{usuario}', teste.usuario)
                         .replace('{senha}', teste.senha)
                         .replace('{url}', teste.url)
