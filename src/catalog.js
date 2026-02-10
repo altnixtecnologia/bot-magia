@@ -94,9 +94,15 @@ function listServersFor(deviceType, planKey) {
             key,
             label: s.label || key,
             sigmaKey: s.sigmaKey || key,
-            capabilities: s.capabilities || []
+            capabilities: s.capabilities || [],
+            trialEnabled: s.trialEnabled !== false
         };
     });
+}
+
+function listTrialServersFor(deviceType, planKey) {
+    const servers = listServersFor(deviceType, planKey);
+    return servers.filter((s) => s.trialEnabled !== false);
 }
 
 function resolveSigmaKey(serverKey) {
@@ -111,7 +117,7 @@ module.exports = {
     listDeviceTypes,
     listPlansForDevice,
     listServersFor,
+    listTrialServersFor,
     resolveSigmaKey,
     getTrialPackageHint
 };
-

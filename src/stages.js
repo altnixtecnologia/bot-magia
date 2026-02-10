@@ -62,7 +62,7 @@ function buildTrialPlanPrompt(deviceType) {
 }
 
 function buildTrialServerPrompt(deviceType, planKey) {
-    const servers = catalog.listServersFor(deviceType, planKey);
+    const servers = catalog.listTrialServersFor(deviceType, planKey);
     if (!servers.length) return { text: null, servers: [] };
     const list = formatNumbered(servers, (s) => s.label);
     return {
@@ -378,7 +378,7 @@ async function processMessage(from, messageObject, contactName) {
             if (msg === 'p') {
                 const deviceType = 'smart_no_android';
                 const planKey = 'prata';
-                const servers = catalog.listServersFor(deviceType, planKey) || [];
+                const servers = catalog.listTrialServersFor(deviceType, planKey) || [];
                 const iptvOnly = servers.filter((s) =>
                     (s.capabilities || []).includes('iptv') &&
                     !(s.capabilities || []).includes('p2p') &&

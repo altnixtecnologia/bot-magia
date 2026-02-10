@@ -37,36 +37,43 @@
     "sparkpainel": {
       "label": "Spark",
       "capabilities": ["p2p", "web"],
+      "trialEnabled": true,
       "sigmaKey": "sparkpainel"
     },
     "ninety": {
       "label": "Ninety",
       "capabilities": ["p2p", "web"],
+      "trialEnabled": true,
       "sigmaKey": "ninety"
     },
     "ltcapp": {
       "label": "LTC",
       "capabilities": ["iptv", "p2p"],
+      "trialEnabled": true,
       "sigmaKey": "ltcapp"
     },
     "epic": {
       "label": "Epic",
       "capabilities": ["iptv", "p2p"],
+      "trialEnabled": true,
       "sigmaKey": "epic"
     },
     "pixelpanel": {
       "label": "Pixel",
       "capabilities": ["iptv", "p2p"],
+      "trialEnabled": true,
       "sigmaKey": "pixelpanel"
     },
     "youtvnrevenda": {
       "label": "YouTV",
       "capabilities": ["iptv"],
+      "trialEnabled": true,
       "sigmaKey": "youtvnrevenda"
     },
     "servidorx": {
       "label": "Servidor X",
       "capabilities": ["iptv"],
+      "trialEnabled": true,
       "sigmaKey": "servidorx"
     }
   },
