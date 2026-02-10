@@ -11,6 +11,15 @@ const sigmaChatbot = require('./sigmaChatbot');
 const trialLimits = require('./trialLimits');
 const supportLocks = require('./supportLocks');
 
+function parseAdminNumbers() {
+    const raw = process.env.ADMIN_WPP_NUMBERS || process.env.ADMIN_WPP_NUMBER || '';
+    const parts = String(raw).split(/[,;\s]+/).filter(Boolean);
+    const digits = parts
+        .map((p) => p.replace(/\D/g, ''))
+        .filter((p) => p.length >= 10);
+    return Array.from(new Set(digits));
+}
+
 function pickRandomItems(items, count) {
     const list = Array.isArray(items) ? items.filter(Boolean) : [];
     const max = Math.min(list.length, Math.max(0, count || 0));
@@ -144,11 +153,10 @@ client.on('message', async (message) => {
 
     const contact = await message.getContact();
     const userJid = contact.id._serialized; // ID real do usuário (ex: 5511999999999@c.us)
-    const adminNumber = process.env.ADMIN_WPP_NUMBER;
-    const adminDigits = adminNumber ? adminNumber.replace(/\D/g, '') : null;
+    const adminDigitsList = parseAdminNumbers();
     const userDigits = userJid.replace('@c.us', '').replace(/\D/g, '');
 
-    if (adminDigits && userDigits === adminDigits) {
+    if (adminDigitsList.length && adminDigitsList.includes(userDigits)) {
         const bodyRaw = message.body.trim();
         const body = bodyRaw.toLowerCase();
         if (body.startsWith('pausar ') || body.startsWith('pause ')) {
@@ -309,10 +317,8 @@ client.on('message', async (message) => {
 
         // Ação para notificar sobre uma nova ativação de app
         if (result.action && result.action.type === 'notify_activation') {
-            const adminNumber = process.env.ADMIN_WPP_NUMBER;
-            if (adminNumber) {
+            if (adminDigitsList.length) {
                 const { app, mac, receipt } = result.action.data;
-                const adminChatId = `${adminNumber}@c.us`;
 
                 // 1. Formata e envia a mensagem de texto com os dados
                 const notificationText = messages.fluxos.notificacaoAtivacao
@@ -321,36 +327,43 @@ client.on('message', async (message) => {
                     .replace('{app}', app)
                     .replace('{mac}', mac);
                 
-                await client.sendMessage(adminChatId, notificationText);
+                for (const adminDigits of adminDigitsList) {
+                    const adminChatId = `${adminDigits}@c.us`;
+                    await client.sendMessage(adminChatId, notificationText);
+                }
 
                 // 2. Baixa e encaminha o comprovante
                 if (receipt && receipt.hasMedia) {
                     console.log('[Ativação] Encaminhando comprovante para o admin...');
                     const media = await receipt.downloadMedia();
-                    await client.sendMessage(adminChatId, media, { caption: `Comprovante de ${name} para o app ${app}.` });
+                    for (const adminDigits of adminDigitsList) {
+                        const adminChatId = `${adminDigits}@c.us`;
+                        await client.sendMessage(adminChatId, media, { caption: `Comprovante de ${name} para o app ${app}.` });
+                    }
                 }
-                console.log(`✅ Notificação de ativação enviada para ${adminNumber}.`);
+                console.log(`✅ Notificação de ativação enviada para admins.`);
             }
         }
 
         // Ação para encaminhar texto livre ao suporte
         if (result.action && result.action.type === 'notify_text') {
-            const adminNumber = process.env.ADMIN_WPP_NUMBER;
-            if (adminNumber) {
-                const adminChatId = `${adminNumber}@c.us`;
+            if (adminDigitsList.length) {
                 const { name, number, message: textMessage } = result.action.data;
                 const notificationText = messages.fluxos.notificacaoTexto
                     .replace('{nome}', name || 'Cliente')
                     .replace('{numero}', number || '-')
                     .replace('{mensagem}', textMessage || '');
                 try {
-                    await client.sendMessage(adminChatId, notificationText);
-                    console.log(`✅ Mensagem de texto encaminhada para ${adminNumber}.`);
+                    for (const adminDigits of adminDigitsList) {
+                        const adminChatId = `${adminDigits}@c.us`;
+                        await client.sendMessage(adminChatId, notificationText);
+                    }
+                    console.log(`✅ Mensagem de texto encaminhada para admins.`);
                 } catch (e) {
                     console.error(`❌ Erro ao encaminhar mensagem de texto: ${e.message}`);
                 }
             } else {
-                console.warn("⚠️ ADMIN_WPP_NUMBER não configurado no .env. Texto livre não encaminhado.");
+                console.warn("⚠️ ADMIN_WPP_NUMBER(S) não configurado no .env. Texto livre não encaminhado.");
             }
         }
 
@@ -358,9 +371,7 @@ client.on('message', async (message) => {
         // Este bloco agora é isolado para NUNCA travar o bot.
         try {
             if (result.action && result.action.type === 'notify_support') {
-                const adminNumber = process.env.ADMIN_WPP_NUMBER;
-                if (adminNumber) {
-                    const adminChatId = `${adminNumber}@c.us`;
+                if (adminDigitsList.length) {
                     const notificationText = messages.fluxos.notificacaoSuporte
                         .replace('{nome}', name)
                         .replace('{numero}', userJid.split('@')[0])
@@ -368,10 +379,13 @@ client.on('message', async (message) => {
                     
                     // Abordagem final e mais direta para contornar o bug da biblioteca.
                     // Envia a mensagem diretamente para o ID do chat, que é a forma mais fundamental de comunicação.
-                    await client.sendMessage(adminChatId, notificationText);
-                    console.log(`✅ Notificação de suporte enviada para ${adminNumber}.`);
+                    for (const adminDigits of adminDigitsList) {
+                        const adminChatId = `${adminDigits}@c.us`;
+                        await client.sendMessage(adminChatId, notificationText);
+                    }
+                    console.log(`✅ Notificação de suporte enviada para admins.`);
                 } else {
-                    console.warn("⚠️ ADMIN_WPP_NUMBER não configurado no .env. Notificação de suporte não enviada.");
+                    console.warn("⚠️ ADMIN_WPP_NUMBER(S) não configurado no .env. Notificação de suporte não enviada.");
                 }
                 updateStage(userJid, 4); // Move o cliente para o estágio de espera
             }

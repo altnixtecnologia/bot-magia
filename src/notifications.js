@@ -13,7 +13,16 @@ const PAYMENT_POLL_MINUTES = Number(process.env.PAYMENT_POLL_MINUTES ?? '2');
 const DUE_POLL_MINUTES = Number(process.env.DUE_POLL_MINUTES ?? '360');
 const PAYMENT_LOOKBACK_DAYS = Number(process.env.PAYMENT_LOOKBACK_DAYS ?? '30');
 const NOTIFY_ENABLED = (process.env.NOTIFY_ENABLED ?? 'true').toLowerCase() !== 'false';
-const ADMIN_WPP_NUMBER = process.env.ADMIN_WPP_NUMBER || null;
+function parseAdminNumbers() {
+    const raw = process.env.ADMIN_WPP_NUMBERS || process.env.ADMIN_WPP_NUMBER || '';
+    const parts = String(raw).split(/[,;\s]+/).filter(Boolean);
+    const digits = parts
+        .map((p) => p.replace(/\D/g, ''))
+        .filter((p) => p.length >= 10);
+    return Array.from(new Set(digits));
+}
+
+const ADMIN_WPP_NUMBERS = parseAdminNumbers();
 
 const MANUAL_RENEW_SERVERS = new Set(['sparkpainel', 'ninety']);
 
@@ -178,6 +187,10 @@ async function fetchClientService(clientId) {
     return data && data.length ? data[0] : null;
 }
 
+function normalizeDigitsLoose(value) {
+    return String(value || '').replace(/\D/g, '');
+}
+
 function getPhoneVariants(digits) {
     const variants = new Set();
     if (digits) variants.add(digits);
@@ -193,13 +206,32 @@ function getPhoneVariants(digits) {
     return Array.from(variants);
 }
 
+function buildSendCandidates(primaryDigits, fallbackDigits) {
+    const set = new Set();
+    const add = (val) => {
+        const v = normalizeDigitsLoose(val);
+        if (v && v.length >= 10) set.add(v);
+    };
+    add(primaryDigits);
+    add(fallbackDigits);
+    const list = Array.from(set);
+    const expanded = new Set(list);
+    list.forEach((v) => {
+        if (v.startsWith('55') && v.length > 11) expanded.add(v.slice(2));
+        if (!v.startsWith('55') && (v.length === 10 || v.length === 11)) expanded.add(`55${v}`);
+    });
+    return Array.from(expanded);
+}
+
 async function fetchClientByPhone(phone) {
     if (!supabase) return { row: null, error: 'Supabase nao configurado.' };
-    const digits = sanitizePhone(phone);
-    if (!digits) return { row: null, error: 'Telefone invalido.' };
+    const digits = normalizeDigitsLoose(phone);
+    if (digits.length < 8) {
+        return { row: null, error: 'Telefone invalido. Use DDI+DDD+numero.' };
+    }
 
     const variants = getPhoneVariants(digits);
-    if (variants.length) {
+    if (variants.length && digits.length >= 10) {
         const { data, error } = await supabase
             .from('launcher_config')
             .select('id, client_name, phone, expiration_date, status_token, status, is_trial')
@@ -376,9 +408,7 @@ async function checkPayments(client, state) {
             saveState(state);
         }
 
-        if (autoRenew.manualAdjust && ADMIN_WPP_NUMBER) {
-            const digits = ADMIN_WPP_NUMBER.replace(/\D/g, '');
-            const adminChatId = `${digits}@c.us`;
+        if (autoRenew.manualAdjust && ADMIN_WPP_NUMBERS.length) {
             const info = [
                 '⚠️ Ajuste manual de renovacao necessario',
                 `Cliente: ${clientRow.client_name || '-'}`,
@@ -390,10 +420,13 @@ async function checkPayments(client, state) {
                 `Renovado automaticamente: ${autoRenew.renewMonths} mes`,
                 `Valor: ${formatCurrency(payment.amount)}`
             ].join('\n');
-            try {
-                await client.sendMessage(adminChatId, info);
-            } catch (e) {
-                console.error('[Notify] Erro ao avisar admin:', e.message);
+            for (const digits of ADMIN_WPP_NUMBERS) {
+                const adminChatId = `${digits}@c.us`;
+                try {
+                    await client.sendMessage(adminChatId, info);
+                } catch (e) {
+                    console.error('[Notify] Erro ao avisar admin:', e.message);
+                }
             }
         }
     }
@@ -484,8 +517,8 @@ function cleanupState(state) {
 
 async function sendManualDueMessage(client, phone, daysAhead = 3) {
     if (!supabase) return { ok: false, error: 'Supabase nao configurado.' };
-    const digits = sanitizePhone(phone);
-    if (!digits) return { ok: false, error: 'Telefone invalido.' };
+    const digits = normalizeDigitsLoose(phone);
+    if (digits.length < 8) return { ok: false, error: 'Telefone invalido. Use DDI+DDD+numero.' };
 
     const lookup = await fetchClientByPhone(digits);
     if (!lookup.row) return { ok: false, error: lookup.error || 'Cliente nao encontrado.' };
@@ -527,9 +560,25 @@ async function sendManualDueMessage(client, phone, daysAhead = 3) {
         .replace('{data_vencimento}', expBr)
         .replace('{link}', link);
 
-    const targetPhone = sanitizePhone(row.phone) || digits;
-    const sent = await sendWhatsApp(client, targetPhone, text);
-    return sent ? { ok: true } : { ok: false, error: 'Falha ao enviar mensagem.' };
+    const primary = sanitizePhone(row.phone) || digits;
+    const candidates = buildSendCandidates(primary, digits);
+    let lastError = null;
+
+    for (const cand of candidates) {
+        const chatId = `${cand}@c.us`;
+        try {
+            if (client && typeof client.isRegisteredUser === 'function') {
+                const isReg = await client.isRegisteredUser(chatId);
+                if (!isReg) continue;
+            }
+            await client.sendMessage(chatId, text);
+            return { ok: true };
+        } catch (e) {
+            lastError = e && e.message ? e.message : 'Falha ao enviar mensagem.';
+        }
+    }
+
+    return { ok: false, error: lastError || 'Numero nao possui WhatsApp.' };
 }
 
 function start(client) {
