@@ -710,7 +710,7 @@ async function processMessage(from, messageObject, contactName) {
                             response = `Você escolheu *${appEscolhido}*.\n\n` +
                                        `Custo: *${appInfo.creditos} crédito(s)*\n` +
                                        `Valor total: *R$ ${valorTotal.toFixed(2)}*\n\n` +
-                                       `Para confirmar, pague via PIX e nos envie o comprovante.\n\n` +
+                                       `Para confirmar, pague via PIX e aguarde a confirmação automática.\n\n` +
                                        `Digite *1* para gerar o QR Code PIX ou digite *V* ou *0* para cancelar.`;
                             updateStage(from, 7); // Novo estágio para confirmação de pagamento
                             break;
@@ -779,30 +779,9 @@ async function processMessage(from, messageObject, contactName) {
                         break;
                     }
 
-                    // Fallback: PIX manual (sem confirmacao automatica)
-                    if (!activationData.chave_pix || !valor) {
-                        console.error("[PIX] Chave ou Valor ausentes nos dados temporários.");
-                        response = "Erro técnico ao gerar o pagamento. Por favor, chame o suporte.";
-                        updateStage(from, 4); // Manda para o suporte
-                        return { text: response };
-                    }
-
-                    const qrCodePix = QrCodePix({
-                        version: '01',
-                        key: activationData.chave_pix,
-                        name: (activationData.nome_beneficiario || 'Altnix').normalize("NFD").replace(/[\u0300-\u036f]/g, "").substring(0, 25),
-                        city: (activationData.cidade_beneficiario || 'SC').normalize("NFD").replace(/[\u0300-\u036f]/g, "").substring(0, 15),
-                        message: `Ativacao ${app}`.substring(0, 40),
-                        value: valor,
-                    });
-
-                    const copiaECola = qrCodePix.payload();
-                    const qrCodeBase64 = await qrCodePix.base64();
-
-                    action = { type: 'send_pix_qr', qrCode: qrCodeBase64, copiaECola: copiaECola };
-                    response = `Geramos o PIX para ativação do *${app}*.\n\n` +
-                        `Vou te enviar o QR Code como imagem e o código "Copia e Cola" a seguir.`;
-                    updateStage(from, 8);
+                    response = "Nao foi possivel gerar a cobranca automatica agora.\n\nVou te encaminhar para o suporte para concluir a ativacao.";
+                    action = { type: 'notify_support', origin: 'Ativacao de Apps - Falha Asaas' };
+                    updateStage(from, 4);
                 } catch (error) {
                     console.error('[PIX Error] Falha ao gerar o código PIX:', error);
                     response = "Tivemos um problema ao gerar o seu QR Code. Por favor, tente novamente em instantes ou fale com o suporte.";

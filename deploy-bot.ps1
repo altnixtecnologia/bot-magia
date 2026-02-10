@@ -48,8 +48,7 @@ $sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=
 
 $remote = "$VpsUser@$VpsHost"
 $remoteGitCmd = "cd $VpsPath && git fetch --all && git reset --hard origin/main && git clean -fd && git pull --ff-only"
-$remoteRestartCmd = "cd $VpsPath && pm2 restart $Pm2App"
-$remoteStatusCmd = "pm2 status $Pm2App"
+$remoteRestartCmd = "cd $VpsPath && pm2 restart $Pm2App --update-env"
 $localSigmaConfig = Join-Path $PSScriptRoot "config\sigma_servers.local.json"
 $remoteSigmaConfig = "$VpsPath/config/sigma_servers.local.json"
 
@@ -67,8 +66,7 @@ if ($confirm -match '^[sS]') {
 
     Write-Host "Reiniciando PM2..."
     & ssh @sshArgs $remote $remoteRestartCmd
-    Write-Host "Status do PM2..."
-    & ssh @sshArgs $remote $remoteStatusCmd
+    Write-Host "PM2 reiniciado."
 } else {
     Write-Host "Deploy na VPS cancelado."
 }
