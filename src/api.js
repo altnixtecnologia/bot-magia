@@ -19,6 +19,22 @@ function logSigmaFailure(serverKey, detail) {
     console.error(`[Sigma] Falha ao gerar teste em ${serverKey}: ${msg}`);
 }
 
+function extractSigmaReply(detail) {
+    if (!detail) return null;
+    const text = String(detail);
+    const idx = text.indexOf(':');
+    const payload = idx >= 0 ? text.slice(idx + 1).trim() : text.trim();
+    if (!payload) return null;
+    try {
+        const parsed = JSON.parse(payload);
+        if (parsed && typeof parsed.reply === 'string') return parsed.reply;
+        if (parsed && typeof parsed.message === 'string') return parsed.message;
+    } catch {
+        return null;
+    }
+    return null;
+}
+
 function getServerLabel(serverKey) {
     if (!serverKey) return null;
     try {
@@ -90,9 +106,10 @@ async function gerarTeste(options = null) {
 
             if (serverKey) {
                 const label = getServerLabel(serverKey) || serverKey;
+                const reply = extractSigmaReply(sigmaResult.error);
                 return {
                     sucesso: false,
-                    erro: `Servidor ${label} instavel no momento. Digite *0* para voltar e escolha outro.`
+                    erro: reply || `Servidor ${label} instavel no momento. Digite *0* para voltar e escolha outro.`
                 };
             }
         }

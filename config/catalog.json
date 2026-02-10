@@ -38,6 +38,7 @@
       "label": "Spark",
       "capabilities": ["p2p", "web"],
       "trialEnabled": true,
+      "cooldownSeconds": 1140,
       "sigmaKey": "sparkpainel"
     },
     "ninety": {

@@ -95,7 +95,8 @@ function listServersFor(deviceType, planKey) {
             label: s.label || key,
             sigmaKey: s.sigmaKey || key,
             capabilities: s.capabilities || [],
-            trialEnabled: s.trialEnabled !== false
+            trialEnabled: s.trialEnabled !== false,
+            cooldownSeconds: Number(s.cooldownSeconds || 0)
         };
     });
 }

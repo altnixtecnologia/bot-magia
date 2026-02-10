@@ -1,6 +1,7 @@
 const menu = require('./menu');
 const messages = require('./messages');
 const catalog = require('./catalog');
+const trialLimits = require('./trialLimits');
 const supabase = require('./supabaseClient');
 const axios = require('axios');
 const activationData = require('./activation_data');
@@ -73,6 +74,17 @@ function buildTrialServerPrompt(deviceType, planKey) {
             '(Digite *V* ou *0* para voltar)',
         servers
     };
+}
+
+function formatWaitSeconds(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    if (m <= 0) return `${s}s`;
+    return `${m}m ${s}s`;
+}
+
+function getPhoneDigits(from) {
+    return String(from || '').replace('@c.us', '').replace(/\D/g, '');
 }
 
 // Limpa estados antigos para evitar crescimento indefinido em memória
@@ -393,10 +405,27 @@ async function processMessage(from, messageObject, contactName) {
                     break;
                 }
 
+                const phone = getPhoneDigits(from);
+                const alreadyUsed = await trialLimits.hasUserServer(phone, chosen.key);
+                if (alreadyUsed) {
+                    response = `Voce ja utilizou o teste do servidor ${chosen.label} com este numero.\nDigite *0* para voltar e escolha outro servidor.`;
+                    updateStage(from, 11);
+                    break;
+                }
+
+                const cooldownSeconds = chosen.cooldownSeconds || 0;
+                const remaining = trialLimits.getGlobalRemaining(chosen.key, cooldownSeconds);
+                if (remaining > 0) {
+                    response = `O servidor ${chosen.label} permite 1 teste a cada ${Math.ceil(cooldownSeconds / 60)} minutos.\nAguarde ${formatWaitSeconds(remaining)} e tente novamente.`;
+                    updateStage(from, 11);
+                    break;
+                }
+                trialLimits.markGlobalAttempt(chosen.key);
+
                 response = messages.fluxos.gerandoTeste;
                 action = {
                     type: 'gerar_teste',
-                    trial: { deviceType, planKey, serverKey: chosen.key, allowFallback: true }
+                    trial: { deviceType, planKey, serverKey: chosen.key, allowFallback: false }
                 };
                 updateStage(from, 11);
                 break;
@@ -490,6 +519,24 @@ async function processMessage(from, messageObject, contactName) {
             const idx = parseInt(msg, 10) - 1;
             if (!Number.isNaN(idx) && idx >= 0 && idx < servers.length) {
                 const chosen = servers[idx];
+
+                const phone = getPhoneDigits(from);
+                const alreadyUsed = await trialLimits.hasUserServer(phone, chosen.key);
+                if (alreadyUsed) {
+                    response = `Voce ja utilizou o teste do servidor ${chosen.label} com este numero.\nDigite *0* para voltar e escolha outro servidor.`;
+                    updateStage(from, 13);
+                    break;
+                }
+
+                const cooldownSeconds = chosen.cooldownSeconds || 0;
+                const remaining = trialLimits.getGlobalRemaining(chosen.key, cooldownSeconds);
+                if (remaining > 0) {
+                    response = `O servidor ${chosen.label} permite 1 teste a cada ${Math.ceil(cooldownSeconds / 60)} minutos.\nAguarde ${formatWaitSeconds(remaining)} e tente novamente.`;
+                    updateStage(from, 13);
+                    break;
+                }
+                trialLimits.markGlobalAttempt(chosen.key);
+
                 response = messages.fluxos.gerandoTeste;
                 action = {
                     type: 'gerar_teste',

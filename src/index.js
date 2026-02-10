@@ -8,6 +8,7 @@ const messages = require('./messages');
 const menu = require('./menu');
 const notifications = require('./notifications');
 const sigmaChatbot = require('./sigmaChatbot');
+const trialLimits = require('./trialLimits');
 
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -142,6 +143,10 @@ client.on('message', async (message) => {
                         .replace('{url}', teste.url)
                         .replace('{vencimento}', teste.vencimento);
                     await client.sendMessage(message.from, msgTeste);
+                    if (options && options.trial && options.trial.serverKey) {
+                        const phone = userJid.replace('@c.us', '').replace(/\D/g, '');
+                        await trialLimits.recordUserServer(phone, options.trial.serverKey);
+                    }
                     updateStage(userJid, 0);
                 } else {
                     const errorMessage = teste.erro || messages.fluxos.erroTeste;
