@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const supabase = require('./supabaseClient');
 const messages = require('./messages');
+const axios = require('axios');
 
 const MAGIC_LINK_BASE_URL = process.env.MAGIC_LINK_BASE_URL ||
     'https://painel-deploy.vercel.app/status.html';
@@ -88,6 +89,40 @@ function sanitizePhone(phone) {
     const digits = String(phone).replace(/\D/g, '');
     if (digits.length < 10) return null;
     return digits;
+}
+
+async function shortenUrl(longUrl, customAlias = '') {
+    const encodedUrl = encodeURIComponent(longUrl);
+    let apiUrl = `https://is.gd/create.php?format=simple&url=${encodedUrl}`;
+
+    if (customAlias) {
+        apiUrl += `&shorturl=${customAlias}`;
+    }
+
+    try {
+        const response = await axios.get(apiUrl, {
+            headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+            }
+        });
+        if (response.data && !response.data.startsWith('Error:')) {
+            return response.data;
+        }
+
+        const randomApiUrl = `https://is.gd/create.php?format=simple&url=${encodedUrl}`;
+        const randomResponse = await axios.get(randomApiUrl, {
+            headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
+            }
+        });
+        return (randomResponse.data && !randomResponse.data.startsWith('Error:'))
+            ? randomResponse.data
+            : longUrl;
+    } catch (e) {
+        return longUrl;
+    }
 }
 
 async function sendWhatsApp(client, phone, message) {
@@ -216,7 +251,11 @@ async function checkDue(client, state) {
             const stateKey = `${row.id}|${keyType}|${expDateStr}`;
             if (state.due[stateKey]) continue;
 
-            const link = `${MAGIC_LINK_BASE_URL}?t=${row.status_token}`;
+            const longLink = `${MAGIC_LINK_BASE_URL}?t=${row.status_token}`;
+            const aliasSeed = String(row.status_token || '')
+                .replace(/[^a-zA-Z0-9]/g, '')
+                .slice(-8);
+            const link = await shortenUrl(longLink, aliasSeed);
             const text = template
                 .replace('{nome}', row.client_name || 'Cliente')
                 .replace('{data_vencimento}', formatDateBr(expDateStr))
