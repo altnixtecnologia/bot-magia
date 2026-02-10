@@ -19,12 +19,24 @@ function logSigmaFailure(serverKey, detail) {
     console.error(`[Sigma] Falha ao gerar teste em ${serverKey}: ${msg}`);
 }
 
+function getServerLabel(serverKey) {
+    if (!serverKey) return null;
+    try {
+        const catalogData = catalog.loadCatalog();
+        const server = (catalogData.servers || {})[serverKey];
+        return server && server.label ? server.label : serverKey;
+    } catch {
+        return serverKey;
+    }
+}
+
 async function gerarTeste(options = null) {
     try {
         const trial = options && options.trial ? options.trial : options;
         const planKey = trial && trial.planKey ? String(trial.planKey) : null; // prata/diamante
         const serverKey = trial && trial.serverKey ? String(trial.serverKey) : null;
         const deviceType = trial && trial.deviceType ? String(trial.deviceType) : null;
+        const allowFallback = Boolean(trial && trial.allowFallback);
 
         // Sigma Chatbot (se configurado)
         const sigmaServer = sigmaChatbot.getActiveServer?.();
@@ -50,7 +62,7 @@ async function gerarTeste(options = null) {
             }
 
             // Fallback automatico para outros servidores compativeis
-            if (deviceType && planKey) {
+            if (allowFallback && deviceType && planKey) {
                 const candidates = catalog.listServersFor(deviceType, planKey)
                     .map((s) => s.key)
                     .filter((k) => k && k !== serverKey);
@@ -70,6 +82,14 @@ async function gerarTeste(options = null) {
                     }
                     logSigmaFailure(candidateSigmaKey, retry.error);
                 }
+            }
+
+            if (serverKey) {
+                const label = getServerLabel(serverKey) || serverKey;
+                return {
+                    sucesso: false,
+                    erro: `Servidor ${label} instavel no momento. Digite *0* para voltar e escolha outro.`
+                };
             }
         }
 

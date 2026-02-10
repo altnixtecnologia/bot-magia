@@ -396,7 +396,7 @@ async function processMessage(from, messageObject, contactName) {
                 response = messages.fluxos.gerandoTeste;
                 action = {
                     type: 'gerar_teste',
-                    trial: { deviceType, planKey, serverKey: chosen.key }
+                    trial: { deviceType, planKey, serverKey: chosen.key, allowFallback: true }
                 };
                 updateStage(from, 11);
                 break;
@@ -493,7 +493,7 @@ async function processMessage(from, messageObject, contactName) {
                 response = messages.fluxos.gerandoTeste;
                 action = {
                     type: 'gerar_teste',
-                    trial: { deviceType, planKey, serverKey: chosen.key }
+                    trial: { deviceType, planKey, serverKey: chosen.key, allowFallback: false }
                 };
                 updateStage(from, 13);
                 state.tempData = null;

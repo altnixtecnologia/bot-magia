@@ -143,7 +143,7 @@ client.on('message', async (message) => {
                     await client.sendMessage(message.from, msgTeste);
                     updateStage(userJid, 0);
                 } else {
-                    const errorMessage = messages.fluxos.erroTeste;
+                    const errorMessage = teste.erro || messages.fluxos.erroTeste;
                     await client.sendMessage(message.from, errorMessage);
                     updateStageWithError(userJid, 1, 'test_failure');
                 }
