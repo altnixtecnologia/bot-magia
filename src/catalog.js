@@ -113,6 +113,53 @@ function resolveSigmaKey(serverKey) {
     return server.sigmaKey || serverKey;
 }
 
+function normalizeLabel(value) {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+}
+
+function findServerKeyByLabel(label) {
+    if (!label) return null;
+    const norm = normalizeLabel(label);
+    const catalog = loadCatalog();
+    const servers = catalog.servers || {};
+    for (const [key, server] of Object.entries(servers)) {
+        if (normalizeLabel(key) === norm) return key;
+        if (server && server.label && normalizeLabel(server.label) === norm) return key;
+    }
+    return null;
+}
+
+function serverSupportsPlan(serverKey, planKey) {
+    const catalog = loadCatalog();
+    const server = (catalog.servers || {})[serverKey];
+    const plan = (catalog.plans || {})[planKey];
+    if (!server || !plan) return false;
+    const caps = server.capabilities || [];
+    const req = plan.requires || [];
+    return req.every((r) => caps.includes(r));
+}
+
+function resolvePlanByAmount(amountCents) {
+    const catalog = loadCatalog();
+    const plans = catalog.plans || {};
+    const amountKey = String(Math.round(Number(amountCents || 0)));
+    for (const [planKey, plan] of Object.entries(plans)) {
+        const prices = plan.prices || {};
+        if (prices[amountKey]) {
+            return {
+                planKey,
+                months: Number(prices[amountKey].months || 0),
+                label: plan.label || planKey
+            };
+        }
+    }
+    return null;
+}
+
 module.exports = {
     loadCatalog,
     listDeviceTypes,
@@ -120,5 +167,8 @@ module.exports = {
     listServersFor,
     listTrialServersFor,
     resolveSigmaKey,
-    getTrialPackageHint
+    getTrialPackageHint,
+    findServerKeyByLabel,
+    serverSupportsPlan,
+    resolvePlanByAmount
 };

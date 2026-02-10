@@ -20,12 +20,24 @@
     "prata": {
       "label": "Prata (IPTV)",
       "requires": ["iptv"],
-      "trialPackageHint": "trial_iptv"
+      "trialPackageHint": "trial_iptv",
+      "prices": {
+        "3500": { "months": 1 },
+        "8500": { "months": 3 },
+        "14000": { "months": 6 },
+        "19000": { "months": 12 }
+      }
     },
     "diamante": {
       "label": "Diamante (P2P/Hibrido)",
       "requires": ["p2p"],
-      "trialPackageHint": "trial_p2p"
+      "trialPackageHint": "trial_p2p",
+      "prices": {
+        "4500": { "months": 1 },
+        "11500": { "months": 3 },
+        "18000": { "months": 6 },
+        "28000": { "months": 12 }
+      }
     }
   },
   "servers": {
@@ -38,13 +50,42 @@
       "label": "Spark",
       "capabilities": ["p2p", "web"],
       "trialEnabled": true,
-      "cooldownSeconds": 1140,
+      "cooldownSeconds": 600,
       "sigmaKey": "sparkpainel"
     },
     "ninety": {
       "label": "Ninety",
       "capabilities": ["p2p", "web"],
       "trialEnabled": true,
+      "p2pApps": [
+        {
+          "title": "NINETY FANTASMA V8",
+          "link": "https://rma.la/fantasmap2pv8",
+          "codes": {
+            "NT DOWN": "75754",
+            "M7 DOWNLOADS": "6274",
+            "DOWNLOADER AFTVNEWS": "627484"
+          }
+        },
+        {
+          "title": "NINETY P2P V8 LITE",
+          "link": "https://rma.la/ninetyv8",
+          "codes": {
+            "NT DOWN": "39823",
+            "M7 DOWNLOADS": "9342",
+            "DOWNLOADER AFTVNEWS": "934266"
+          }
+        },
+        {
+          "title": "P2 NEW",
+          "link": "https://rma.la/p2new",
+          "codes": {
+            "NT DOWN": "22353",
+            "M7 DOWNLOADS": "3184",
+            "DOWNLOADER": "3184276"
+          }
+        }
+      ],
       "sigmaKey": "ninety"
     },
     "ltcapp": {

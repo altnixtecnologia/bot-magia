@@ -10,6 +10,71 @@ const notifications = require('./notifications');
 const sigmaChatbot = require('./sigmaChatbot');
 const trialLimits = require('./trialLimits');
 
+function pickRandomItems(items, count) {
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    const max = Math.min(list.length, Math.max(0, count || 0));
+    if (!max) return [];
+    for (let i = list.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list.slice(0, max);
+}
+
+function buildTestMessage(teste) {
+    const isP2P = teste && teste.planKey === 'diamante';
+    const lines = [
+        '✅ *Teste Gerado com Sucesso!*',
+        '',
+        `🛰️ Servidor: *${teste.servidor || '-'}*`,
+        `👤 Usuário: *${teste.usuario || '-'}*`,
+        `🔑 Senha: *${teste.senha || '-'}*`
+    ];
+
+    if (!isP2P) {
+        if (teste.url) lines.push(`🌐 URL: ${teste.url}`);
+    }
+
+    if (teste.vencimento) {
+        lines.push(`📅 Vencimento: ${teste.vencimento}`);
+    }
+
+    if (!isP2P) {
+        if (Array.isArray(teste.m3uOptions) && teste.m3uOptions.length) {
+            lines.push('', '📃 Opções M3U:');
+            teste.m3uOptions.forEach((opt, idx) => {
+                lines.push(`${idx + 1}. ${opt.label}: ${opt.url}`);
+            });
+        }
+        lines.push('', 'Sugerimos o app XCIPTV (gratuito) para testar.');
+    } else {
+        const p2pApps = Array.isArray(teste.p2pApps) ? teste.p2pApps : [];
+        if (p2pApps.length) {
+            const count = Math.min(p2pApps.length, Math.random() < 0.5 ? 1 : 2);
+            const picked = pickRandomItems(p2pApps, count);
+            lines.push('', '📱 Apps P2P sugeridos:');
+            picked.forEach((app, idx) => {
+                if (!app) return;
+                if (app.title) lines.push(`✅ ${app.title}`);
+                if (app.link) lines.push(`LINK: ${app.link}`);
+                const codes = app.codes && typeof app.codes === 'object' ? app.codes : null;
+                if (codes) {
+                    Object.entries(codes).forEach(([label, value]) => {
+                        if (value) lines.push(`${label}: ${value}`);
+                    });
+                }
+                if (idx < picked.length - 1) lines.push('');
+            });
+        } else if (teste.p2pAppLink) {
+            lines.push('', `Baixe o app: ${teste.p2pAppLink}`);
+        } else {
+            lines.push('', 'Para P2P, solicite o app com nosso suporte.');
+        }
+    }
+
+    return lines.join('\n');
+}
+
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: { 
@@ -136,12 +201,7 @@ client.on('message', async (message) => {
                 const options = (result.action && typeof result.action === 'object') ? result.action : null;
                 const teste = await gerarTeste(options);
                 if (teste.sucesso) {
-                    const msgTeste = messages.fluxos.fimTeste
-                        .replace('{servidor}', teste.servidor || '-')
-                        .replace('{usuario}', teste.usuario)
-                        .replace('{senha}', teste.senha)
-                        .replace('{url}', teste.url)
-                        .replace('{vencimento}', teste.vencimento);
+                    const msgTeste = buildTestMessage(teste);
                     await client.sendMessage(message.from, msgTeste);
                     if (options && options.trial && options.trial.serverKey) {
                         const phone = userJid.replace('@c.us', '').replace(/\D/g, '');

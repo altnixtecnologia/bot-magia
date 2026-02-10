@@ -46,6 +46,34 @@ function getServerLabel(serverKey) {
     }
 }
 
+function getServerMeta(serverKey) {
+    if (!serverKey) return null;
+    try {
+        const catalogData = catalog.loadCatalog();
+        return (catalogData.servers || {})[serverKey] || null;
+    } catch {
+        return null;
+    }
+}
+
+function collectM3uOptions(payload) {
+    if (!payload) return [];
+    const options = [];
+    const seen = new Set();
+    const push = (label, url) => {
+        if (!url) return;
+        const key = String(url);
+        if (seen.has(key)) return;
+        seen.add(key);
+        options.push({ label, url: key });
+    };
+
+    push('M3U', payload.m3u_url || payload.m3uUrl);
+    push('M3U curto', payload.m3u_url_short || payload.m3uUrlShort);
+    push('Playlist', payload.playlist || payload.playlist_url);
+    return options;
+}
+
 async function gerarTeste(options = null) {
     try {
         const trial = options && options.trial ? options.trial : options;
@@ -65,13 +93,21 @@ async function gerarTeste(options = null) {
             if (sigmaResult.ok && sigmaResult.data) {
                 const payload = sigmaResult.data;
                 const label = serverKey ? getServerLabel(serverKey) : null;
+                const meta = serverKey ? getServerMeta(serverKey) : null;
+                const m3uOptions = collectM3uOptions(payload);
                 return {
                     sucesso: true,
                     servidor: label || sigmaKey || 'Sigma',
                     usuario: payload.username || '-',
                     senha: payload.password || '-',
                     url: payload.dns || payload.payUrl || PANEL_CONFIG.url,
-                    vencimento: payload.expiresAtFormatted || payload.expiresAt || "2 horas"
+                    vencimento: payload.expiresAtFormatted || payload.expiresAt || "2 horas",
+                    planKey,
+                    deviceType,
+                    serverKey,
+                    m3uOptions,
+                    p2pAppLink: meta && meta.p2pAppLink ? meta.p2pAppLink : null,
+                    p2pApps: meta && Array.isArray(meta.p2pApps) ? meta.p2pApps : null
                 };
             }
 
@@ -91,13 +127,21 @@ async function gerarTeste(options = null) {
                     if (retry.ok && retry.data) {
                         const payload = retry.data;
                         const label = getServerLabel(candidate) || candidate;
+                        const meta = getServerMeta(candidate);
+                        const m3uOptions = collectM3uOptions(payload);
                         return {
                             sucesso: true,
                             servidor: label,
                             usuario: payload.username || '-',
                             senha: payload.password || '-',
                             url: payload.dns || payload.payUrl || PANEL_CONFIG.url,
-                            vencimento: payload.expiresAtFormatted || payload.expiresAt || "2 horas"
+                            vencimento: payload.expiresAtFormatted || payload.expiresAt || "2 horas",
+                            planKey,
+                            deviceType,
+                            serverKey: candidate,
+                            m3uOptions,
+                            p2pAppLink: meta && meta.p2pAppLink ? meta.p2pAppLink : null,
+                            p2pApps: meta && Array.isArray(meta.p2pApps) ? meta.p2pApps : null
                         };
                     }
                     logSigmaFailure(candidateSigmaKey, retry.error);

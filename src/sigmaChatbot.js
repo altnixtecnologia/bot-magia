@@ -122,6 +122,103 @@ function getPackageId(server, planKey) {
     return null;
 }
 
+function resolveRenewPackage(serverKey, planKey, months, amountCents) {
+    const config = loadConfig();
+    const server = config.servers ? config.servers[serverKey] : null;
+    if (!server) return null;
+
+    if (server.renew && server.renew[planKey] && server.renew[planKey][String(months)]) {
+        return server.renew[planKey][String(months)];
+    }
+
+    const all = server.packages_all || {};
+    const candidates = Object.values(all).filter((p) => {
+        if (!p) return false;
+        if (String(p.is_trial || '').toLowerCase() === 'yes') return false;
+        if (String(p.duration_in || '').toUpperCase() !== 'MONTHS') return false;
+        if (Number(p.duration) !== Number(months)) return false;
+        return true;
+    });
+
+    if (!candidates.length) return null;
+
+    const isP2P = (p) => {
+        const name = String(p.name || '').toLowerCase();
+        return name.includes('p2p') || name.includes('hibri') || name.includes('peer');
+    };
+
+    let filtered = candidates;
+    if (planKey === 'diamante') {
+        filtered = candidates.filter(isP2P);
+    } else if (planKey === 'prata') {
+        filtered = candidates.filter((p) => !isP2P(p));
+    }
+
+    if (filtered.length === 1) return filtered[0].id;
+    if (filtered.length > 1) {
+        if (amountCents) {
+            const byPrice = filtered.find((p) => Number(p.plan_price || 0) === Number(amountCents));
+            if (byPrice) return byPrice.id;
+        }
+        return filtered[0].id;
+    }
+
+    if (amountCents) {
+        const byPrice = candidates.find((p) => Number(p.plan_price || 0) === Number(amountCents));
+        if (byPrice) return byPrice.id;
+    }
+    return candidates[0].id;
+}
+
+async function apiRequest(serverKey, method, path, data) {
+    const server = getServerByKey(serverKey);
+    if (!server) throw new Error('Servidor Sigma não configurado.');
+
+    const headers = {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+    if (server.token) headers.Authorization = `Bearer ${server.token}`;
+
+    const base = server.baseUrl.replace(/\/$/, '');
+    const url = `${base}${path}`;
+    const opts = { headers, timeout: 20000 };
+
+    if (method === 'GET') {
+        const res = await axios.get(url, { ...opts, params: data || {} });
+        return res.data;
+    }
+
+    const res = await axios.post(url, data || {}, opts);
+    return res.data;
+}
+
+async function findCustomerByUsername(serverKey, username) {
+    if (!username) return null;
+    const data = await apiRequest(serverKey, 'GET', '/api/customers', { username });
+    const list = data && data.data ? data.data : data;
+    if (!Array.isArray(list)) return null;
+    const exact = list.find((c) => String(c.username) === String(username));
+    return exact || list[0] || null;
+}
+
+async function renewCustomer(serverKey, username, planKey, months, amountCents) {
+    const customer = await findCustomerByUsername(serverKey, username);
+    if (!customer || !customer.id) {
+        return { ok: false, error: 'Cliente nao encontrado no Sigma.' };
+    }
+
+    const packageId = resolveRenewPackage(serverKey, planKey, months, amountCents);
+    if (!packageId) {
+        return { ok: false, error: 'Pacote de renovacao nao encontrado.' };
+    }
+
+    const payload = { package_id: packageId, connections: 1 };
+    const res = await apiRequest(serverKey, 'POST', `/api/customers/${customer.id}/renew`, payload);
+    return { ok: true, data: res };
+}
+
 async function createTrialOnServer(serverKey, planKey = 'trial') {
     const server = getServerByKey(serverKey);
     if (!server) {
@@ -182,5 +279,7 @@ module.exports = {
     listServers,
     setActiveServer,
     getActiveServer,
-    getServerByKey
+    getServerByKey,
+    renewCustomer,
+    resolveRenewPackage
 };
