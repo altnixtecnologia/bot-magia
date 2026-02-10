@@ -46,9 +46,9 @@ if (-not $SshKey) {
 $sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new")
 
 $remote = "$VpsUser@$VpsHost"
-$remoteCmd = "cd $VpsPath && git pull && pm2 restart $Pm2App"
+$remoteCmd = "cd $VpsPath && git fetch --all && git reset --hard origin/main && git clean -fd && git pull --ff-only && pm2 restart $Pm2App"
 
-$confirm = Read-Host "Subir para a VPS agora? (S/N)"
+$confirm = Read-Host "Subir para a VPS agora? (S/N) (isso descarta alterações locais na VPS)"
 if ($confirm -match '^[sS]') {
     & ssh @sshArgs $remote $remoteCmd
 } else {
