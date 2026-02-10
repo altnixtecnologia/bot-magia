@@ -1,0 +1,57 @@
+{
+  "active": "playdragon",
+  "servers": {
+    "playdragon": {
+      "baseUrl": "https://playdragon.sigma.vin",
+      "chatbotId": "EMeWelGDnN",
+      "token": "COLOQUE_O_TOKEN_AQUI",
+      "packages": {
+        "trial": "Yen129WPEa",
+        "full": "BV4D3rLaqZ",
+        "full_no_adult": "RYAWRk1jlx"
+      }
+    },
+    "sparkpainel": {
+      "baseUrl": "https://sparkpainel.top",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    },
+    "ninety": {
+      "baseUrl": "https://ninety.sigma.st",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    },
+    "pixelpanel": {
+      "baseUrl": "https://pixelpanel.top",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    },
+    "ltcapp": {
+      "baseUrl": "https://ltcapp.top",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    },
+    "epic": {
+      "baseUrl": "https://epic.sigma.vin",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    },
+    "youtvnrevenda": {
+      "baseUrl": "https://youtvnrevenda.sigma.vin",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    },
+    "servidorx": {
+      "baseUrl": "https://servidorx.sigma.st",
+      "chatbotId": "",
+      "token": "",
+      "packages": {}
+    }
+  }
+}

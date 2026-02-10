@@ -1,0 +1,86 @@
+{
+  "deviceTypes": {
+    "smart_no_android": {
+      "label": "Smart TV (sem Android)",
+      "requires": ["iptv"],
+      "planOptions": ["prata"]
+    },
+    "android": {
+      "label": "Android TV / TV Box / Stick",
+      "requires": [],
+      "planOptions": ["prata", "diamante"]
+    },
+    "pc": {
+      "label": "PC / Notebook (navegador)",
+      "requires": ["web"],
+      "planOptions": ["diamante"]
+    }
+  },
+  "plans": {
+    "prata": {
+      "label": "Prata (IPTV)",
+      "requires": ["iptv"],
+      "trialPackageHint": "trial_iptv"
+    },
+    "diamante": {
+      "label": "Diamante (P2P/Hibrido)",
+      "requires": ["p2p"],
+      "trialPackageHint": "trial_p2p"
+    }
+  },
+  "servers": {
+    "star_vizzion": {
+      "label": "Star Vizzion",
+      "capabilities": ["iptv"],
+      "sigmaKey": "playdragon"
+    },
+    "sparkpainel": {
+      "label": "Spark",
+      "capabilities": ["p2p", "web"],
+      "sigmaKey": "sparkpainel"
+    },
+    "ninety": {
+      "label": "Ninety",
+      "capabilities": ["p2p", "web"],
+      "sigmaKey": "ninety"
+    },
+    "ltcapp": {
+      "label": "LTC",
+      "capabilities": ["iptv", "p2p"],
+      "sigmaKey": "ltcapp"
+    },
+    "epic": {
+      "label": "Epic",
+      "capabilities": ["iptv", "p2p"],
+      "sigmaKey": "epic"
+    },
+    "pixelpanel": {
+      "label": "Pixel",
+      "capabilities": ["iptv", "p2p"],
+      "sigmaKey": "pixelpanel"
+    },
+    "youtvnrevenda": {
+      "label": "YouTV",
+      "capabilities": ["iptv"],
+      "sigmaKey": "youtvnrevenda"
+    },
+    "servidorx": {
+      "label": "Servidor X",
+      "capabilities": ["iptv"],
+      "sigmaKey": "servidorx"
+    }
+  },
+  "defaults": {
+    "trialServerOrder": [
+      "ltcapp",
+      "star_vizzion",
+      "sparkpainel",
+      "ninety",
+      "epic",
+      "pixelpanel",
+      "youtvnrevenda",
+      "servidorx"
+    ],
+    "pcServerOrder": ["sparkpainel", "ninety"]
+  }
+}

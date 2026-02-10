@@ -7,6 +7,7 @@ const { gerarTeste } = require('./api');
 const messages = require('./messages');
 const menu = require('./menu');
 const notifications = require('./notifications');
+const sigmaChatbot = require('./sigmaChatbot');
 
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -76,6 +77,33 @@ client.on('message', async (message) => {
 
     const contact = await message.getContact();
     const userJid = contact.id._serialized; // ID real do usuário (ex: 5511999999999@c.us)
+    const adminNumber = process.env.ADMIN_WPP_NUMBER;
+    const adminDigits = adminNumber ? adminNumber.replace(/\D/g, '') : null;
+    const userDigits = userJid.replace('@c.us', '').replace(/\D/g, '');
+
+    if (adminDigits && userDigits === adminDigits) {
+        const bodyRaw = message.body.trim();
+        const body = bodyRaw.toLowerCase();
+        if (body.startsWith('servidor ') || body.startsWith('server ')) {
+            const parts = bodyRaw.split(' ');
+            const key = parts.slice(1).join(' ').trim();
+            if (key) {
+                const result = sigmaChatbot.setActiveServer(key);
+                await client.sendMessage(message.from, result.ok ? result.message : `Erro: ${result.message}`);
+            } else {
+                const { keys, active } = sigmaChatbot.listServers();
+                const listText = keys.length ? keys.join(', ') : 'nenhum';
+                await client.sendMessage(message.from, `Servidores: ${listText}\nAtivo: ${active ?? '-'}`);
+            }
+            return;
+        }
+        if (body === 'servidores' || body === 'servers' || body === 'server list') {
+            const { keys, active } = sigmaChatbot.listServers();
+            const listText = keys.length ? keys.join(', ') : 'nenhum';
+            await client.sendMessage(message.from, `Servidores: ${listText}\nAtivo: ${active ?? '-'}`);
+            return;
+        }
+    }
 
     // Trava para impedir processamento concorrente para o mesmo usuário
     if (userLocks[userJid]) {
@@ -97,10 +125,15 @@ client.on('message', async (message) => {
         const chat = await message.getChat();
         await chat.sendStateTyping();
 
-        if (result.action === 'gerar_teste') {
+        const gerarTesteAction =
+            result.action === 'gerar_teste' ||
+            (result.action && typeof result.action === 'object' && result.action.type === 'gerar_teste');
+
+        if (gerarTesteAction) {
             await client.sendMessage(message.from, result.text);
             try {
-                const teste = await gerarTeste();
+                const options = (result.action && typeof result.action === 'object') ? result.action : null;
+                const teste = await gerarTeste(options);
                 if (teste.sucesso) {
                     const msgTeste = messages.fluxos.fimTeste
                         .replace('{usuario}', teste.usuario)
@@ -158,6 +191,27 @@ client.on('message', async (message) => {
                     await client.sendMessage(adminChatId, media, { caption: `Comprovante de ${name} para o app ${app}.` });
                 }
                 console.log(`✅ Notificação de ativação enviada para ${adminNumber}.`);
+            }
+        }
+
+        // Ação para encaminhar texto livre ao suporte
+        if (result.action && result.action.type === 'notify_text') {
+            const adminNumber = process.env.ADMIN_WPP_NUMBER;
+            if (adminNumber) {
+                const adminChatId = `${adminNumber}@c.us`;
+                const { name, number, message: textMessage } = result.action.data;
+                const notificationText = messages.fluxos.notificacaoTexto
+                    .replace('{nome}', name || 'Cliente')
+                    .replace('{numero}', number || '-')
+                    .replace('{mensagem}', textMessage || '');
+                try {
+                    await client.sendMessage(adminChatId, notificationText);
+                    console.log(`✅ Mensagem de texto encaminhada para ${adminNumber}.`);
+                } catch (e) {
+                    console.error(`❌ Erro ao encaminhar mensagem de texto: ${e.message}`);
+                }
+            } else {
+                console.warn("⚠️ ADMIN_WPP_NUMBER não configurado no .env. Texto livre não encaminhado.");
             }
         }
 

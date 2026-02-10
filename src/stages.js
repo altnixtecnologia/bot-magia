@@ -1,5 +1,6 @@
 const menu = require('./menu');
 const messages = require('./messages');
+const catalog = require('./catalog');
 const supabase = require('./supabaseClient');
 const axios = require('axios');
 const activationData = require('./activation_data');
@@ -30,6 +31,48 @@ const CLEANUP_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
 
 function isGreeting(msg) {
     return GREETING_KEYWORDS.has(msg);
+}
+
+function formatNumbered(items, getLine) {
+    return items.map((it, idx) => `${idx + 1} - ${getLine(it)}`).join('\n');
+}
+
+function buildTrialDevicePrompt() {
+    const devices = catalog.listDeviceTypes();
+    const list = formatNumbered(devices, (d) => d.label);
+    return (
+        'Antes de gerar seu teste, qual aparelho voce usa?\n\n' +
+        `${list}\n\n` +
+        'Digite o numero correspondente.\n' +
+        '(Ou digite *P* para teste rapido)\n' +
+        '(Digite *V* ou *0* para voltar)'
+    );
+}
+
+function buildTrialPlanPrompt(deviceType) {
+    const plans = catalog.listPlansForDevice(deviceType);
+    if (!plans.length) return null;
+    const list = formatNumbered(plans, (p) => p.label);
+    return (
+        'Qual plano voce quer testar?\n\n' +
+        `${list}\n\n` +
+        'Digite o numero correspondente.\n' +
+        '(Digite *V* ou *0* para voltar)'
+    );
+}
+
+function buildTrialServerPrompt(deviceType, planKey) {
+    const servers = catalog.listServersFor(deviceType, planKey);
+    if (!servers.length) return { text: null, servers: [] };
+    const list = formatNumbered(servers, (s) => s.label);
+    return {
+        text:
+            'Escolha o servidor para o teste:\n\n' +
+            `${list}\n\n` +
+            'Digite o numero correspondente.\n' +
+            '(Digite *V* ou *0* para voltar)',
+        servers
+    };
 }
 
 // Limpa estados antigos para evitar crescimento indefinido em memória
@@ -66,7 +109,8 @@ function getUserState(from) {
             name: '',
             lastError: null, // Para armazenar o contexto de um erro anterior
             isProcessing: false, // Flag para evitar processamento concorrente
-            tempData: null // Para armazenar dados temporários, como a lista de dispositivos
+            tempData: null, // Para armazenar dados temporários, como a lista de dispositivos
+            textModeStartedAt: null // Controle do modo texto livre
         };
     }
     return userStages[from];
@@ -146,7 +190,17 @@ async function processMessage(from, messageObject, contactName) {
 
     if (isInactive) {
         state.stage = 0; // Reseta o estágio para a próxima interação
+        state.textModeStartedAt = null;
         return { text: messages.timeout.reset }; // Retorna a mensagem de timeout e encerra
+    }
+
+    const textModeExpired = state.stage === 10 &&
+        state.textModeStartedAt &&
+        (now - state.textModeStartedAt) > TIMEOUT_MS;
+    if (textModeExpired) {
+        state.stage = 0;
+        state.textModeStartedAt = null;
+        return { text: messages.timeout.reset };
     }
 
     let response = "";
@@ -258,8 +312,9 @@ async function processMessage(from, messageObject, contactName) {
                     updateStage(from, 2);
                     break;
                 case '2':
-                    response = messages.fluxos.gerandoTeste;
-                    action = 'gerar_teste';
+                    state.tempData = { flow: 'trial' };
+                    response = buildTrialDevicePrompt();
+                    updateStage(from, 11);
                     break;
                 case '3':
                     response = messages.fluxos.suporte;
@@ -275,6 +330,11 @@ async function processMessage(from, messageObject, contactName) {
                     }).join('\n');
                     response = `${menu.apps.titulo}\n\n${appListText}\n\nPor favor, digite o *número* do aplicativo que deseja ativar ou digite *V* ou *0* para voltar.`;
                     updateStage(from, 5);
+                    break;
+                case 't':
+                    response = messages.fluxos.textoLivre;
+                    state.textModeStartedAt = now;
+                    updateStage(from, 10);
                     break;
                 default:
                     // Se não for uma opção válida, verifica se é uma saudação para reiniciar
@@ -294,8 +354,9 @@ async function processMessage(from, messageObject, contactName) {
                     state.stage = 0; // Força um reinício para mostrar o menu principal
                     return processMessage(from, { body: 'menu' }, contactName);
                 case 't':
-                    response = messages.fluxos.gerandoTeste;
-                    action = 'gerar_teste';
+                    state.tempData = { flow: 'trial' };
+                    response = buildTrialDevicePrompt();
+                    updateStage(from, 11);
                     break;
                 default:
                     if (isGreeting(msg)) {
@@ -306,6 +367,123 @@ async function processMessage(from, messageObject, contactName) {
                     break;
             }
             break;
+
+        case 11: { // Teste - tipo de aparelho
+            if (msg === '0' || msg === 'v') {
+                state.stage = 0;
+                state.tempData = null;
+                return processMessage(from, { body: 'menu' }, contactName);
+            }
+
+            if (msg === 'p') {
+                response = messages.fluxos.gerandoTeste;
+                action = { type: 'gerar_teste' };
+                updateStage(from, 11);
+                break;
+            }
+
+            const devices = catalog.listDeviceTypes();
+            const idx = parseInt(msg, 10) - 1;
+            if (!Number.isNaN(idx) && idx >= 0 && idx < devices.length) {
+                const deviceType = devices[idx].key;
+                state.tempData = { flow: 'trial', deviceType };
+
+                const plans = catalog.listPlansForDevice(deviceType);
+                if (plans.length === 1) {
+                    const planKey = plans[0].key;
+                    state.tempData.planKey = planKey;
+                    const serverPrompt = buildTrialServerPrompt(deviceType, planKey);
+                    if (!serverPrompt.text) {
+                        response = 'Nao encontrei servidores disponiveis para esse teste. Digite *0* para voltar ao menu.';
+                        updateStage(from, 1);
+                        state.tempData = null;
+                    } else {
+                        response = serverPrompt.text;
+                        updateStage(from, 13);
+                    }
+                } else {
+                    const planPrompt = buildTrialPlanPrompt(deviceType);
+                    response = planPrompt || 'Configuracao de planos ausente. Digite *0* para voltar ao menu.';
+                    updateStage(from, 12);
+                }
+            } else {
+                response = `${messages.menu.opcaoInvalida}\n\n${buildTrialDevicePrompt()}`;
+                updateStage(from, 11);
+            }
+            break;
+        }
+
+        case 12: { // Teste - plano (apenas Android)
+            if (msg === '0' || msg === 'v') {
+                state.stage = 0;
+                state.tempData = null;
+                return processMessage(from, { body: 'menu' }, contactName);
+            }
+
+            const deviceType = state.tempData && state.tempData.deviceType ? String(state.tempData.deviceType) : null;
+            if (!deviceType) {
+                response = 'Sessao expirada. Vamos voltar ao menu.\n\n' + messages.menu.principal;
+                updateStage(from, 1);
+                state.tempData = null;
+                break;
+            }
+
+            const plans = catalog.listPlansForDevice(deviceType);
+            const idx = parseInt(msg, 10) - 1;
+            if (!Number.isNaN(idx) && idx >= 0 && idx < plans.length) {
+                const planKey = plans[idx].key;
+                state.tempData.planKey = planKey;
+                const serverPrompt = buildTrialServerPrompt(deviceType, planKey);
+                if (!serverPrompt.text) {
+                    response = 'Nao encontrei servidores disponiveis para esse teste. Digite *0* para voltar ao menu.';
+                    updateStage(from, 1);
+                    state.tempData = null;
+                } else {
+                    response = serverPrompt.text;
+                    updateStage(from, 13);
+                }
+            } else {
+                const planPrompt = buildTrialPlanPrompt(deviceType);
+                response = `${messages.menu.opcaoInvalida}\n\n${planPrompt || ''}`.trim();
+                updateStage(from, 12);
+            }
+            break;
+        }
+
+        case 13: { // Teste - escolha do servidor
+            if (msg === '0' || msg === 'v') {
+                state.stage = 0;
+                state.tempData = null;
+                return processMessage(from, { body: 'menu' }, contactName);
+            }
+
+            const deviceType = state.tempData && state.tempData.deviceType ? String(state.tempData.deviceType) : null;
+            const planKey = state.tempData && state.tempData.planKey ? String(state.tempData.planKey) : null;
+            if (!deviceType || !planKey) {
+                response = 'Sessao expirada. Vamos voltar ao menu.\n\n' + messages.menu.principal;
+                updateStage(from, 1);
+                state.tempData = null;
+                break;
+            }
+
+            const { servers } = buildTrialServerPrompt(deviceType, planKey);
+            const idx = parseInt(msg, 10) - 1;
+            if (!Number.isNaN(idx) && idx >= 0 && idx < servers.length) {
+                const chosen = servers[idx];
+                response = messages.fluxos.gerandoTeste;
+                action = {
+                    type: 'gerar_teste',
+                    trial: { deviceType, planKey, serverKey: chosen.key }
+                };
+                updateStage(from, 13);
+                state.tempData = null;
+            } else {
+                const serverPrompt = buildTrialServerPrompt(deviceType, planKey);
+                response = `${messages.menu.opcaoInvalida}\n\n${serverPrompt.text || ''}`.trim();
+                updateStage(from, 13);
+            }
+            break;
+        }
 
         case 6: // Escolha de Dispositivo
             if (msg === '0' || msg === 'v') {
@@ -491,6 +669,25 @@ async function processMessage(from, messageObject, contactName) {
                 response = "Obrigado! Todas as informações foram enviadas para nossa equipe. Sua ativação será processada em breve. 👨‍💻\n\nDigite *0* para voltar ao menu principal.";
                 updateStage(from, 0); // Reseta o fluxo
             }
+            break;
+
+        case 10: // Texto livre (encaminhar para suporte)
+            if (msg === '0' || msg === 'v') {
+                state.stage = 0;
+                state.textModeStartedAt = null;
+                return processMessage(from, { body: 'menu' }, contactName);
+            }
+
+            action = {
+                type: 'notify_text',
+                data: {
+                    name: contactName || state.name || 'Cliente',
+                    number: from.replace('@c.us', ''),
+                    message: messageObject.body
+                }
+            };
+            response = messages.fluxos.textoLivreConfirmacao;
+            updateStage(from, 10);
             break;
 
         case 4: // Fim / Suporte (estado terminal)

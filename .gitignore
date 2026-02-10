@@ -5,3 +5,5 @@ logs/
 *.log
 .env
 data/notification_state.json
+data/sigma_state.json
+config/sigma_servers.local.json
