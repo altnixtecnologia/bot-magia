@@ -36,11 +36,14 @@ if ($status) {
     Write-Host "Nada para commitar. Seguindo para o deploy..."
 }
 
-$sshArgs = @()
-if ($SshKey) {
-    $sshArgs += "-i"
-    $sshArgs += $SshKey
+$defaultKey = Join-Path $env:USERPROFILE ".ssh\codex_temp"
+if (-not $SshKey -and (Test-Path $defaultKey)) {
+    $SshKey = $defaultKey
 }
+if (-not $SshKey) {
+    throw "BOT_SSH_KEY não definido e nenhuma chave padrão encontrada. Defina a variável ou passe -SshKey."
+}
+$sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new")
 
 $remote = "$VpsUser@$VpsHost"
 $remoteCmd = "cd $VpsPath && git pull && pm2 restart $Pm2App"
