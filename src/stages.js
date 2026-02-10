@@ -376,8 +376,28 @@ async function processMessage(from, messageObject, contactName) {
             }
 
             if (msg === 'p') {
+                const deviceType = 'smart_no_android';
+                const planKey = 'prata';
+                const servers = catalog.listServersFor(deviceType, planKey) || [];
+                const iptvOnly = servers.filter((s) =>
+                    (s.capabilities || []).includes('iptv') &&
+                    !(s.capabilities || []).includes('p2p') &&
+                    !(s.capabilities || []).includes('web')
+                );
+                const chosen = iptvOnly[0] || null;
+
+                if (!chosen) {
+                    response = 'Teste rapido indisponivel no momento. Digite *0* para voltar ao menu.';
+                    updateStage(from, 1);
+                    state.tempData = null;
+                    break;
+                }
+
                 response = messages.fluxos.gerandoTeste;
-                action = { type: 'gerar_teste' };
+                action = {
+                    type: 'gerar_teste',
+                    trial: { deviceType, planKey, serverKey: chosen.key }
+                };
                 updateStage(from, 11);
                 break;
             }

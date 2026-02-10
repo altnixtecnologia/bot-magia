@@ -134,8 +134,13 @@ async function createTrialOnServer(serverKey, planKey = 'trial') {
 
     const url = `${server.baseUrl.replace(/\/$/, '')}/api/chatbot/${server.chatbotId}/${packageId}`;
     try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (server.token) {
+            headers.Authorization = `Bearer ${server.token}`;
+        }
+
         const res = await axios.post(url, {}, {
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             timeout: 15000
         });
         return { ok: true, data: res.data };

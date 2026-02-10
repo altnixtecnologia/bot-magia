@@ -12,18 +12,26 @@ const PANEL_CONFIG = {
     apiPath: process.env.PANEL_API_PATH || 'api_reseller.php' // Padrão é 'api_reseller.php', mas pode ser 'panel_api.php'
 };
 
+function logSigmaFailure(serverKey, detail) {
+    const msg = detail && typeof detail === 'string'
+        ? detail
+        : (detail && detail.message ? detail.message : 'Falha desconhecida');
+    console.error(`[Sigma] Falha ao gerar teste em ${serverKey}: ${msg}`);
+}
+
 async function gerarTeste(options = null) {
     try {
         const trial = options && options.trial ? options.trial : options;
         const planKey = trial && trial.planKey ? String(trial.planKey) : null; // prata/diamante
         const serverKey = trial && trial.serverKey ? String(trial.serverKey) : null;
+        const deviceType = trial && trial.deviceType ? String(trial.deviceType) : null;
 
         // Sigma Chatbot (se configurado)
         const sigmaServer = sigmaChatbot.getActiveServer?.();
         if (sigmaServer) {
             const packageHint = planKey ? (catalog.getTrialPackageHint(planKey) || 'trial') : 'trial';
             const sigmaKey = serverKey ? catalog.resolveSigmaKey(serverKey) : null;
-            const sigmaResult = sigmaKey
+            let sigmaResult = sigmaKey
                 ? await sigmaChatbot.createTrialOnServer(sigmaKey, packageHint)
                 : await sigmaChatbot.createTrial(packageHint);
             if (sigmaResult.ok && sigmaResult.data) {
@@ -35,6 +43,33 @@ async function gerarTeste(options = null) {
                     url: payload.dns || payload.payUrl || PANEL_CONFIG.url,
                     vencimento: payload.expiresAtFormatted || payload.expiresAt || "2 horas"
                 };
+            }
+
+            if (sigmaKey) {
+                logSigmaFailure(sigmaKey, sigmaResult.error);
+            }
+
+            // Fallback automatico para outros servidores compativeis
+            if (deviceType && planKey) {
+                const candidates = catalog.listServersFor(deviceType, planKey)
+                    .map((s) => s.key)
+                    .filter((k) => k && k !== serverKey);
+
+                for (const candidate of candidates) {
+                    const candidateSigmaKey = catalog.resolveSigmaKey(candidate);
+                    const retry = await sigmaChatbot.createTrialOnServer(candidateSigmaKey, packageHint);
+                    if (retry.ok && retry.data) {
+                        const payload = retry.data;
+                        return {
+                            sucesso: true,
+                            usuario: payload.username || '-',
+                            senha: payload.password || '-',
+                            url: payload.dns || payload.payUrl || PANEL_CONFIG.url,
+                            vencimento: payload.expiresAtFormatted || payload.expiresAt || "2 horas"
+                        };
+                    }
+                    logSigmaFailure(candidateSigmaKey, retry.error);
+                }
             }
         }
 
