@@ -565,11 +565,21 @@ async function sendManualDueMessage(client, phone, daysAhead = 3) {
     let lastError = null;
 
     for (const cand of candidates) {
-        const chatId = `${cand}@c.us`;
+        let chatId = `${cand}@c.us`;
         try {
             if (client && typeof client.isRegisteredUser === 'function') {
                 const isReg = await client.isRegisteredUser(chatId);
                 if (!isReg) continue;
+            }
+            if (client && typeof client.getNumberId === 'function') {
+                try {
+                    const numberId = await client.getNumberId(chatId);
+                    if (numberId && numberId._serialized) {
+                        chatId = numberId._serialized;
+                    }
+                } catch {
+                    // ignora e tenta com chatId normal
+                }
             }
             await client.sendMessage(chatId, text);
             return { ok: true };
