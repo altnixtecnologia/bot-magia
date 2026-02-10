@@ -4,3 +4,4 @@ node_modules/
 logs/
 *.log
 .env
+data/notification_state.json

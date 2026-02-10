@@ -34,7 +34,10 @@ const messages = {
     notificacoesVencimento: {
         preVencimento: "Olá, *{nome}*! Passando para lembrar que sua assinatura *Magia TV* vence em 5 dias ({data_vencimento}). Para antecipar sua renovação e não ficar sem sinal, acesse seu link exclusivo:\n\n🔗 {link}",
         venceHoje: "*Atenção, {nome}!* Seu acesso vence hoje. 😱\nPara renovar agora e garantir a continuidade do seu sinal, acesse seu Link Mágico:\n\n🔗 {link}\n\n_Lá você também encontra seus dados de acesso._",
-        vencido: "Olá, *{nome}*. Notamos que seu plano expirou ontem. 😔\nMas não se preocupe, seu acesso pode ser reativado na hora! Basta realizar o pagamento pelo seu link:\n\n🔗 {link}"
+        vencido: "Olá, *{nome}*. Notamos que seu plano expirou há 2 dias. 😔\nMas não se preocupe, seu acesso pode ser reativado na hora! Basta realizar o pagamento pelo seu link:\n\n🔗 {link}"
+    },
+    notificacoesPagamento: {
+        confirmacao: "✅ *Pagamento confirmado!*\n\nOlá, *{nome}*! Recebemos o seu pagamento de *{valor}* e seu acesso Magia TV foi renovado.\n\nNovo vencimento: *{vencimento}*\n\nQualquer dúvida, é só responder por aqui."
     }
 };
 

@@ -6,6 +6,7 @@ const { processMessage, updateStage, updateStageWithError } = require('./stages'
 const { gerarTeste } = require('./api');
 const messages = require('./messages');
 const menu = require('./menu');
+const notifications = require('./notifications');
 
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -61,6 +62,11 @@ client.on('qr', (qr) => {
 
 client.on('ready', () => {
     console.log('✅ Bot Magia está online e pronto!');
+    try {
+        notifications.start(client);
+    } catch (e) {
+        console.error('[Notify] Falha ao iniciar o agendador:', e.message);
+    }
 });
 
 const userLocks = {}; // Objeto para controlar o processamento por usuário
