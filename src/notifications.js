@@ -178,20 +178,65 @@ async function fetchClientService(clientId) {
     return data && data.length ? data[0] : null;
 }
 
-async function fetchClientByPhone(phone) {
-    if (!supabase) return null;
-    const digits = sanitizePhone(phone);
-    if (!digits) return null;
-    const { data, error } = await supabase
-        .from('launcher_config')
-        .select('id, client_name, phone, expiration_date, status_token, status, is_trial')
-        .eq('phone', digits)
-        .limit(1);
-    if (error) {
-        console.error('[Notify] Erro ao buscar cliente por telefone:', error.message);
-        return null;
+function getPhoneVariants(digits) {
+    const variants = new Set();
+    if (digits) variants.add(digits);
+    if (digits && digits.startsWith('55') && digits.length > 11) {
+        variants.add(digits.slice(2));
     }
-    return data && data.length ? data[0] : null;
+    if (digits && digits.length === 10) {
+        variants.add(`55${digits}`);
+    }
+    if (digits && digits.length === 11) {
+        variants.add(`55${digits}`);
+    }
+    return Array.from(variants);
+}
+
+async function fetchClientByPhone(phone) {
+    if (!supabase) return { row: null, error: 'Supabase nao configurado.' };
+    const digits = sanitizePhone(phone);
+    if (!digits) return { row: null, error: 'Telefone invalido.' };
+
+    const variants = getPhoneVariants(digits);
+    if (variants.length) {
+        const { data, error } = await supabase
+            .from('launcher_config')
+            .select('id, client_name, phone, expiration_date, status_token, status, is_trial')
+            .in('phone', variants);
+        if (error) {
+            console.error('[Notify] Erro ao buscar cliente por telefone:', error.message);
+            return { row: null, error: 'Erro ao buscar cliente.' };
+        }
+        if (data && data.length === 1) return { row: data[0], error: null };
+        if (data && data.length > 1) {
+            return { row: null, error: 'Mais de um cliente encontrado. Use o numero completo com DDI.' };
+        }
+    }
+
+    const last9 = digits.length >= 9 ? digits.slice(-9) : null;
+    const last8 = digits.length >= 8 ? digits.slice(-8) : null;
+    const orParts = [];
+    if (last9) orParts.push(`phone.ilike.%${last9}%`);
+    if (last8) orParts.push(`phone.ilike.%${last8}%`);
+
+    if (orParts.length) {
+        const { data, error } = await supabase
+            .from('launcher_config')
+            .select('id, client_name, phone, expiration_date, status_token, status, is_trial')
+            .or(orParts.join(','))
+            .limit(5);
+        if (error) {
+            console.error('[Notify] Erro ao buscar cliente por telefone (ilike):', error.message);
+            return { row: null, error: 'Erro ao buscar cliente.' };
+        }
+        if (data && data.length === 1) return { row: data[0], error: null };
+        if (data && data.length > 1) {
+            return { row: null, error: 'Mais de um cliente encontrado. Use o numero completo com DDI.' };
+        }
+    }
+
+    return { row: null, error: 'Cliente nao encontrado.' };
 }
 
 function addMonths(baseDate, months) {
@@ -442,8 +487,9 @@ async function sendManualDueMessage(client, phone, daysAhead = 3) {
     const digits = sanitizePhone(phone);
     if (!digits) return { ok: false, error: 'Telefone invalido.' };
 
-    const row = await fetchClientByPhone(digits);
-    if (!row) return { ok: false, error: 'Cliente nao encontrado.' };
+    const lookup = await fetchClientByPhone(digits);
+    if (!lookup.row) return { ok: false, error: lookup.error || 'Cliente nao encontrado.' };
+    const row = lookup.row;
     if (!row.status_token) return { ok: false, error: 'Cliente sem status_token.' };
 
     const days = Number(daysAhead);
@@ -481,7 +527,8 @@ async function sendManualDueMessage(client, phone, daysAhead = 3) {
         .replace('{data_vencimento}', expBr)
         .replace('{link}', link);
 
-    const sent = await sendWhatsApp(client, digits, text);
+    const targetPhone = sanitizePhone(row.phone) || digits;
+    const sent = await sendWhatsApp(client, targetPhone, text);
     return sent ? { ok: true } : { ok: false, error: 'Falha ao enviar mensagem.' };
 }
 
