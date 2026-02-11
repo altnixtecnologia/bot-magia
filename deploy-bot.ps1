@@ -62,11 +62,12 @@ $sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=
 
 $remote = "$VpsUser@$VpsHost"
 $remoteGitCmd = @(
+    "set -e"
     "cd $VpsPath"
-    "git fetch --all --prune"
-    "git checkout main"
-    "git reset --hard origin/main"
-    "git clean -fd"
+    "git fetch --all --prune > /dev/null"
+    "git checkout main > /dev/null"
+    "git reset --hard origin/main > /dev/null"
+    "git clean -fd > /dev/null"
     "git rev-parse HEAD"
 ) -join " && "
 
