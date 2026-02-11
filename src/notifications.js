@@ -426,19 +426,29 @@ async function checkPayments(client, state) {
             const res = tryConfirmActivationForPhone(clientRow.phone || '');
             if (!res.ok) {
                 console.error(`[Activation] Falha pagamento ${payment.id}: ${res.error}`);
+                const fallbackText = [
+                    'Pagamento confirmado! ✅',
+                    '',
+                    'Recebemos seu pagamento de ativação.',
+                    'Não encontrei a sessão ativa para pedir seus dados (MAC/E-mail).',
+                    'Digite *SUPORTE* para concluirmos sua ativação agora.'
+                ].join('\n');
+                await sendWhatsApp(client, clientRow.phone, fallbackText);
+                state.payments[payment.id] = new Date().toISOString();
+                saveState(state);
                 continue;
             }
             const sent = await sendWhatsApp(client, res.phone, res.message);
-            if (sent) {
-                state.payments[payment.id] = new Date().toISOString();
-                saveState(state);
-            }
+            state.payments[payment.id] = new Date().toISOString();
+            saveState(state);
             continue;
         }
 
         const autoRenew = await tryAutoRenew(payment, clientRow);
         if (!autoRenew.ok) {
             console.error(`[Renew] Falha pagamento ${payment.id}: ${autoRenew.error}`);
+            state.payments[payment.id] = new Date().toISOString();
+            saveState(state);
             continue;
         }
 

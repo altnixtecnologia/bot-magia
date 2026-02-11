@@ -12,8 +12,13 @@ function getBotSecret() {
     return process.env.BOT_SECRET || null;
 }
 
-function getAnonKey() {
-    return process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || null;
+function getApiKey() {
+    // Prefer service key (most stable in server-to-server calls) and fall back to anon.
+    return process.env.SUPABASE_SERVICE_KEY ||
+        process.env.SUPABASE_SERVICE_ROLE_KEY ||
+        process.env.SUPABASE_KEY ||
+        process.env.SUPABASE_ANON_KEY ||
+        null;
 }
 
 async function postFunction(path, body) {
@@ -21,8 +26,8 @@ async function postFunction(path, body) {
     if (!base) return { ok: false, error: 'SUPABASE_URL nao configurado.' };
     const secret = getBotSecret();
     if (!secret) return { ok: false, error: 'BOT_SECRET nao configurado.' };
-    const anonKey = getAnonKey();
-    if (!anonKey) return { ok: false, error: 'SUPABASE_KEY (anon) nao configurado.' };
+    const apiKey = getApiKey();
+    if (!apiKey) return { ok: false, error: 'SUPABASE_KEY/SUPABASE_SERVICE_KEY nao configurado.' };
 
     const url = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
     try {
@@ -31,8 +36,8 @@ async function postFunction(path, body) {
             headers: {
                 'Content-Type': 'application/json',
                 // Supabase Edge Functions gateway requires Authorization/apikey.
-                'apikey': anonKey,
-                'Authorization': `Bearer ${anonKey}`,
+                'apikey': apiKey,
+                'Authorization': `Bearer ${apiKey}`,
                 'x-bot-secret': secret
             }
         });
