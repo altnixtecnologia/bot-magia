@@ -180,6 +180,18 @@ async function sendWhatsApp(client, phone, message) {
     }
 }
 
+async function sendWhatsAppCandidates(client, candidates, message) {
+    const tried = new Set();
+    for (const raw of candidates || []) {
+        const digits = sanitizePhone(raw);
+        if (!digits || tried.has(digits)) continue;
+        tried.add(digits);
+        const ok = await sendWhatsApp(client, digits, message);
+        if (ok) return { ok: true, phone: digits };
+    }
+    return { ok: false, error: 'Falha ao enviar em todos os numeros candidatos.' };
+}
+
 function buildPhoneCandidates(digits) {
     const set = new Set();
     const add = (v) => {
@@ -265,6 +277,32 @@ function buildSendCandidates(primaryDigits, fallbackDigits) {
     list.forEach((v) => {
         if (v.startsWith('55') && v.length > 11) expanded.add(v.slice(2));
         if (!v.startsWith('55') && (v.length === 10 || v.length === 11)) expanded.add(`55${v}`);
+
+        // BR mobile variants with/without 9th digit after DDD
+        if (v.startsWith('55') && v.length === 12) {
+            const ddd = v.slice(2, 4);
+            const num = v.slice(4);
+            expanded.add(`55${ddd}9${num}`);
+            expanded.add(`${ddd}9${num}`);
+        }
+        if (v.startsWith('55') && v.length === 13 && v.charAt(4) === '9') {
+            const ddd = v.slice(2, 4);
+            const num = v.slice(5);
+            expanded.add(`55${ddd}${num}`);
+            expanded.add(`${ddd}${num}`);
+        }
+        if (!v.startsWith('55') && v.length === 10) {
+            const ddd = v.slice(0, 2);
+            const num = v.slice(2);
+            expanded.add(`${ddd}9${num}`);
+            expanded.add(`55${ddd}9${num}`);
+        }
+        if (!v.startsWith('55') && v.length === 11 && v.charAt(2) === '9') {
+            const ddd = v.slice(0, 2);
+            const num = v.slice(3);
+            expanded.add(`${ddd}${num}`);
+            expanded.add(`55${ddd}${num}`);
+        }
     });
     return Array.from(expanded);
 }
@@ -424,6 +462,7 @@ async function checkPayments(client, state) {
         const type = payment.type ? String(payment.type) : 'renewal';
         if (type === 'activation') {
             const res = tryConfirmActivationForPhone(clientRow.phone || '');
+            const candidates = buildSendCandidates(clientRow.phone || '', (res && res.phone) ? res.phone : '');
             if (!res.ok) {
                 console.error(`[Activation] Falha pagamento ${payment.id}: ${res.error}`);
                 const fallbackText = [
@@ -433,12 +472,15 @@ async function checkPayments(client, state) {
                     'Não encontrei a sessão ativa para pedir seus dados (MAC/E-mail).',
                     'Digite *SUPORTE* para concluirmos sua ativação agora.'
                 ].join('\n');
-                await sendWhatsApp(client, clientRow.phone, fallbackText);
+                await sendWhatsAppCandidates(client, candidates, fallbackText);
                 state.payments[payment.id] = new Date().toISOString();
                 saveState(state);
                 continue;
             }
-            const sent = await sendWhatsApp(client, res.phone, res.message);
+            const sent = await sendWhatsAppCandidates(client, candidates, res.message);
+            if (!sent.ok) {
+                console.error(`[Activation] Falha envio WhatsApp pagamento ${payment.id}: ${sent.error}`);
+            }
             state.payments[payment.id] = new Date().toISOString();
             saveState(state);
             continue;

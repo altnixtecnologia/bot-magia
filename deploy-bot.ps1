@@ -15,13 +15,24 @@ function Assert-Command($name) {
     }
 }
 
+function Invoke-External {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao executar: $FilePath $($Arguments -join ' ') (exit=$LASTEXITCODE)"
+    }
+}
+
 Assert-Command git
 Assert-Command ssh
 Assert-Command scp
 
-git status --short
+Invoke-External git @("status", "--short")
 
-$status = git status --porcelain
+$status = (& git status --porcelain)
 if ($status) {
     if (-not $Message) {
         $Message = Read-Host "Commit message"
@@ -30,12 +41,15 @@ if ($status) {
         throw "Commit message vazio. Abandonando."
     }
 
-    git add -A
-    git commit -m $Message
-    git push
+    Invoke-External git @("add", "-A")
+    Invoke-External git @("commit", "-m", $Message)
+    Invoke-External git @("push")
 } else {
     Write-Host "Nada para commitar. Seguindo para o deploy..."
 }
+
+$localCommit = (& git rev-parse HEAD).Trim()
+Write-Host "Commit local: $localCommit"
 
 $defaultKey = Join-Path $env:USERPROFILE ".ssh\codex_temp"
 if (-not $SshKey -and (Test-Path $defaultKey)) {
@@ -47,26 +61,42 @@ if (-not $SshKey) {
 $sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new")
 
 $remote = "$VpsUser@$VpsHost"
-$remoteGitCmd = "cd $VpsPath && git fetch --all && git reset --hard origin/main && git clean -fd && git pull --ff-only"
+$remoteGitCmd = "cd $VpsPath && git fetch --all --prune && git checkout main && git reset --hard origin/main && git clean -fd && git rev-parse HEAD"
 $remoteRestartCmd = "cd $VpsPath && pm2 restart $Pm2App --update-env"
 $localSigmaConfig = Join-Path $PSScriptRoot "config\sigma_servers.local.json"
 $remoteSigmaConfig = "$VpsPath/config/sigma_servers.local.json"
 
 $confirm = Read-Host "Subir para a VPS agora? (S/N) (isso descarta alterações locais na VPS)"
 if ($confirm -match '^[sS]') {
-    & ssh @sshArgs $remote $remoteGitCmd
+    $remoteCommit = (& ssh @sshArgs $remote $remoteGitCmd).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha no sync git da VPS."
+    }
+    Write-Host "Commit remoto após sync: $remoteCommit"
 
     # Sincroniza configs locais (não versionadas) para a VPS.
     if (Test-Path $localSigmaConfig) {
         Write-Host "Enviando sigma_servers.local.json para a VPS..."
         & scp @sshArgs $localSigmaConfig "${remote}:$remoteSigmaConfig"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Falha ao enviar sigma_servers.local.json."
+        }
     } else {
         Write-Host "Aviso: config\\sigma_servers.local.json não existe localmente; pulando sync."
     }
 
     Write-Host "Reiniciando PM2..."
     & ssh @sshArgs $remote $remoteRestartCmd
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao reiniciar PM2 na VPS."
+    }
     Write-Host "PM2 reiniciado."
+
+    if ($remoteCommit -ne $localCommit) {
+        Write-Host "Aviso: commit remoto diferente do local. Verifique branch/repositório na VPS."
+    } else {
+        Write-Host "VPS sincronizada com sucesso no commit local."
+    }
 } else {
     Write-Host "Deploy na VPS cancelado."
 }

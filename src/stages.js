@@ -282,6 +282,14 @@ async function processMessage(from, messageObject, contactName) {
     const today = new Date().toLocaleDateString();
     const msg = messageObject.body.toLowerCase().trim();
 
+    // Comando global de suporte (prioridade alta)
+    if (msg === 'suporte') {
+        const response = messages.fluxos.suporte;
+        const action = { type: 'notify_support', origin: 'Comando SUPORTE' };
+        updateStage(from, 4);
+        return { text: response, action };
+    }
+
     // 1. Comando global de SAÍDA (prioridade máxima)
     if (msg === 's') {
         updateStage(from, 0);
@@ -428,6 +436,7 @@ async function processMessage(from, messageObject, contactName) {
                     // Verifica se o último erro foi uma falha de teste
                     const origin = state.lastError === 'test_failure' ? 'Falha ao Gerar Teste' : 'Menu Principal';
                     action = { type: 'notify_support', origin: origin };
+                    updateStage(from, 4);
                     state.lastError = null; // Limpa o erro após tratar
                     break;
                 case '4':
