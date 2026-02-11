@@ -61,7 +61,16 @@ if (-not $SshKey) {
 $sshArgs = @("-i", $SshKey, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new")
 
 $remote = "$VpsUser@$VpsHost"
-$remoteGitCmd = "cd $VpsPath && git fetch --all --prune && git checkout main && git reset --hard origin/main && git clean -fd && git rev-parse HEAD"
+$remoteGitCmd = @(
+    "cd $VpsPath"
+    "git fetch --all --prune"
+    "git checkout main"
+    "git reset --hard origin/main"
+    "git clean -fd"
+    "git rev-parse HEAD"
+) -join " && "
+
+$remoteStatusCmd = "cd $VpsPath && git status --porcelain"
 $remoteRestartCmd = "cd $VpsPath && pm2 restart $Pm2App --update-env"
 $localSigmaConfig = Join-Path $PSScriptRoot "config\sigma_servers.local.json"
 $remoteSigmaConfig = "$VpsPath/config/sigma_servers.local.json"
@@ -73,6 +82,14 @@ if ($confirm -match '^[sS]') {
         throw "Falha no sync git da VPS."
     }
     Write-Host "Commit remoto após sync: $remoteCommit"
+    $remoteStatus = (& ssh @sshArgs $remote $remoteStatusCmd)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao verificar status na VPS."
+    }
+    if ($remoteStatus) {
+        Write-Host "Aviso: VPS com alteracoes locais:"
+        Write-Host $remoteStatus
+    }
 
     # Sincroniza configs locais (não versionadas) para a VPS.
     if (Test-Path $localSigmaConfig) {
