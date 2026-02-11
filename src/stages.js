@@ -744,6 +744,9 @@ async function processMessage(from, messageObject, contactName) {
 
                     // Preferir cobranca via Asaas (confirmacao automatica via webhook + polling)
                     const asaas = await createAsaasPixForActivation(from, state.tempData, state.tempData.cpf_cnpj || null);
+                    if (!asaas.ok) {
+                        console.error('[create-pix activation] falha:', asaas.error);
+                    }
                     if (asaas.ok && asaas.data && asaas.data.pix) {
                         const pix = asaas.data.pix;
                         action = {

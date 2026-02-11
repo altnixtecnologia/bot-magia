@@ -12,11 +12,17 @@ function getBotSecret() {
     return process.env.BOT_SECRET || null;
 }
 
+function getAnonKey() {
+    return process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || null;
+}
+
 async function postFunction(path, body) {
     const base = getFunctionsBaseUrl();
     if (!base) return { ok: false, error: 'SUPABASE_URL nao configurado.' };
     const secret = getBotSecret();
     if (!secret) return { ok: false, error: 'BOT_SECRET nao configurado.' };
+    const anonKey = getAnonKey();
+    if (!anonKey) return { ok: false, error: 'SUPABASE_KEY (anon) nao configurado.' };
 
     const url = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
     try {
@@ -24,6 +30,9 @@ async function postFunction(path, body) {
             timeout: 20000,
             headers: {
                 'Content-Type': 'application/json',
+                // Supabase Edge Functions gateway requires Authorization/apikey.
+                'apikey': anonKey,
+                'Authorization': `Bearer ${anonKey}`,
                 'x-bot-secret': secret
             }
         });
@@ -48,4 +57,3 @@ module.exports = {
     registerService,
     createPix
 };
-
