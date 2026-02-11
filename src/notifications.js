@@ -230,19 +230,47 @@ async function fetchClientsByIds(clientIds) {
     return data || [];
 }
 
-async function fetchClientService(clientId) {
-    if (!supabase || !clientId) return null;
+async function fetchClientServices(clientId) {
+    if (!supabase || !clientId) return [];
     const { data, error } = await supabase
         .from('client_services')
-        .select('service_name, login, password, created_at')
+        .select('service_key, service_name, login, password, created_at')
         .eq('client_id', clientId)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .order('created_at', { ascending: false });
     if (error) {
         console.error('[Notify] Erro ao buscar servicos:', error.message);
-        return null;
+        return [];
     }
-    return data && data.length ? data[0] : null;
+    return data || [];
+}
+
+async function sendTelegram(text) {
+    const token = process.env.TELEGRAM_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID || process.env.CHAT_ID;
+    if (!token || !chatId) return false;
+    try {
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+        await axios.post(url, {
+            chat_id: chatId,
+            text,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true
+        });
+        return true;
+    } catch (e) {
+        console.error('[Notify] Falha ao enviar Telegram:', e.message);
+        return false;
+    }
+}
+
+async function notifyAdminsWhatsApp(client, text) {
+    if (!ADMIN_WPP_NUMBERS.length) return false;
+    let okAny = false;
+    for (const digits of ADMIN_WPP_NUMBERS) {
+        const sent = await sendWhatsApp(client, digits, text);
+        if (sent) okAny = true;
+    }
+    return okAny;
 }
 
 function normalizeDigitsLoose(value) {
@@ -369,48 +397,69 @@ async function tryAutoRenew(payment, clientRow) {
     const plan = catalog.resolvePlanByAmount(amountCents);
     if (!plan) return { ok: false, error: 'Valor nao corresponde a nenhum plano.' };
 
-    const service = await fetchClientService(payment.client_id);
-    if (!service || !service.login || !service.service_name) {
-        return { ok: false, error: 'Servico do cliente nao encontrado.' };
+    const services = await fetchClientServices(payment.client_id);
+    if (!services.length) {
+        return { ok: false, error: 'Servicos do cliente nao encontrados.' };
     }
 
-    const serverKey = catalog.findServerKeyByLabel(service.service_name);
-    if (!serverKey) return { ok: false, error: 'Servidor do cliente nao identificado.' };
-    if (!catalog.serverSupportsPlan(serverKey, plan.planKey)) {
-        return { ok: false, error: 'Plano nao compativel com o servidor.' };
+    const results = [];
+    let anySuccess = false;
+    let anyManual = false;
+    let lastNextExp = null;
+
+    for (const service of services) {
+        const rawKey = service.service_key ? String(service.service_key) : null;
+        const serverKey = rawKey || catalog.findServerKeyByLabel(service.service_name || '');
+        if (!service.login || !serverKey) {
+            results.push({ ok: false, reason: 'dados_incompletos', service });
+            continue;
+        }
+        if (!catalog.serverSupportsPlan(serverKey, plan.planKey)) {
+            results.push({ ok: false, reason: 'plano_incompativel', service, serverKey });
+            continue;
+        }
+
+        let renewMonths = plan.months;
+        let manualAdjust = null;
+        if (MANUAL_RENEW_SERVERS.has(serverKey) && plan.months !== 1) {
+            manualAdjust = { requestedMonths: plan.months, planKey: plan.planKey };
+            renewMonths = 1;
+        }
+
+        const renew = await sigmaChatbot.renewCustomer(
+            serverKey,
+            service.login,
+            plan.planKey,
+            renewMonths,
+            amountCents
+        );
+
+        if (!renew.ok) {
+            results.push({ ok: false, reason: 'renew_falhou', service, serverKey, error: renew.error || 'falha' });
+            continue;
+        }
+
+        anySuccess = true;
+        if (manualAdjust) anyManual = true;
+        results.push({ ok: true, service, serverKey, manualAdjust, renewMonths });
+
+        if (!manualAdjust) {
+            const now = new Date();
+            const base = clientRow.expiration_date ? new Date(clientRow.expiration_date) : now;
+            const start = base > now ? base : now;
+            lastNextExp = addMonths(start, renewMonths);
+        }
     }
 
-    let renewMonths = plan.months;
-    let manualAdjust = null;
-    if (MANUAL_RENEW_SERVERS.has(serverKey) && plan.months !== 1) {
-        manualAdjust = {
-            requestedMonths: plan.months,
-            planKey: plan.planKey
-        };
-        renewMonths = 1;
+    if (!anySuccess) {
+        return { ok: false, error: 'Falha ao renovar em todos os servidores.', plan, results };
     }
 
-    const renew = await sigmaChatbot.renewCustomer(
-        serverKey,
-        service.login,
-        plan.planKey,
-        renewMonths,
-        amountCents
-    );
-    if (!renew.ok) return renew;
-
-    // Atualiza vencimento local (estimado) apenas quando nao exige ajuste manual.
-    let nextExp = null;
-    if (!manualAdjust) {
-        const now = new Date();
-        const base = clientRow.expiration_date ? new Date(clientRow.expiration_date) : now;
-        const start = base > now ? base : now;
-        nextExp = addMonths(start, renewMonths);
-
+    if (lastNextExp) {
         try {
             await supabase
                 .from('launcher_config')
-                .update({ expiration_date: nextExp.toISOString() })
+                .update({ expiration_date: lastNextExp.toISOString() })
                 .eq('id', clientRow.id);
         } catch (e) {
             console.warn('[Notify] Falha ao atualizar vencimento local:', e.message);
@@ -419,12 +468,11 @@ async function tryAutoRenew(payment, clientRow) {
 
     return {
         ok: true,
-        nextExp,
-        manualAdjust,
-        renewMonths,
+        nextExp: lastNextExp,
+        manualAdjust: anyManual ? { requestedMonths: plan.months, planKey: plan.planKey } : null,
+        renewMonths: plan.months,
         plan,
-        serverKey,
-        service
+        results
     };
 }
 
@@ -489,6 +537,22 @@ async function checkPayments(client, state) {
         const autoRenew = await tryAutoRenew(payment, clientRow);
         if (!autoRenew.ok) {
             console.error(`[Renew] Falha pagamento ${payment.id}: ${autoRenew.error}`);
+            const details = [
+                '<b>Falha na renovacao</b>',
+                `Cliente: ${clientRow.client_name || '-'}`,
+                `Telefone: ${clientRow.phone || '-'}`,
+                `Pagamento: ${payment.id}`,
+                `Valor: ${formatCurrency(payment.amount)}`,
+                `Erro: ${autoRenew.error}`
+            ].join('\n');
+            const tgOk = await sendTelegram(details);
+            if (!tgOk) {
+                await notifyAdminsWhatsApp(client, details.replace(/<[^>]+>/g, ''));
+            }
+
+            const msgFail = 'Pagamento confirmado, mas houve falha ao renovar automaticamente. Nosso suporte vai ajustar.';
+            await sendWhatsApp(client, clientRow.phone, msgFail);
+
             state.payments[payment.id] = new Date().toISOString();
             saveState(state);
             continue;
@@ -511,6 +575,11 @@ async function checkPayments(client, state) {
             .replace('{nome}', name)
             .replace('{valor}', formatCurrency(payment.amount))
             .replace('{vencimento}', expBr || '-');
+        if (autoRenew.results && autoRenew.results.length) {
+            const okCount = autoRenew.results.filter((r) => r.ok).length;
+            const totalCount = autoRenew.results.length;
+            text += `\n\nServidores renovados: ${okCount}/${totalCount}.`;
+        }
         if (autoRenew.manualAdjust) {
             text += '\n\nNosso suporte ajustara o vencimento conforme o plano pago.';
         }
@@ -521,16 +590,35 @@ async function checkPayments(client, state) {
             saveState(state);
         }
 
+        if (autoRenew.results && autoRenew.results.some((r) => !r.ok)) {
+            const failures = autoRenew.results
+                .filter((r) => !r.ok)
+                .map((r) => `- ${r.service && r.service.service_name ? r.service.service_name : (r.serverKey || 'Servidor')}: ${r.reason || r.error || 'falha'}`)
+                .join('\n');
+            const msg = [
+                '<b>Falha parcial de renovacao</b>',
+                `Cliente: ${clientRow.client_name || '-'}`,
+                `Telefone: ${clientRow.phone || '-'}`,
+                `Pagamento: ${payment.id}`,
+                `Valor: ${formatCurrency(payment.amount)}`,
+                'Erros:',
+                failures
+            ].join('\n');
+            const tgOk = await sendTelegram(msg);
+            if (!tgOk) {
+                await notifyAdminsWhatsApp(client, msg.replace(/<[^>]+>/g, ''));
+            }
+        }
+
         if (autoRenew.manualAdjust && ADMIN_WPP_NUMBERS.length) {
             const info = [
                 '⚠️ Ajuste manual de renovacao necessario',
                 `Cliente: ${clientRow.client_name || '-'}`,
                 `Telefone: ${clientRow.phone || '-'}`,
-                `Servidor: ${autoRenew.serverKey || '-'}`,
-                `Login: ${autoRenew.service && autoRenew.service.login ? autoRenew.service.login : '-'}`,
+                `Servidores: ${autoRenew.results ? autoRenew.results.filter((r) => r.ok).map((r) => r.serverKey || (r.service && r.service.service_name) || '-').join(', ') : '-'}`,
                 `Plano: ${autoRenew.plan ? autoRenew.plan.label : '-'}`,
                 `Meses pagos: ${autoRenew.manualAdjust.requestedMonths}`,
-                `Renovado automaticamente: ${autoRenew.renewMonths} mes`,
+                `Renovado automaticamente: 1 mes`,
                 `Valor: ${formatCurrency(payment.amount)}`
             ].join('\n');
             for (const digits of ADMIN_WPP_NUMBERS) {
