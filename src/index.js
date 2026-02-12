@@ -21,6 +21,30 @@ function parseAdminNumbers() {
     return Array.from(new Set(digits));
 }
 
+function isAdminCommand(rawBody) {
+    const body = String(rawBody || '').toLowerCase().trim();
+    return (
+        body === 'pausados' ||
+        body === 'pausos' ||
+        body === 'locks' ||
+        body === 'servidores' ||
+        body === 'servers' ||
+        body === 'server list' ||
+        body.startsWith('pausar ') ||
+        body.startsWith('pause ') ||
+        body.startsWith('vencimento ') ||
+        body.startsWith('vence ') ||
+        body.startsWith('aviso ') ||
+        body.startsWith('venc3') ||
+        body.startsWith('confirmar ') ||
+        body.startsWith('confirma ') ||
+        body.startsWith('liberar ') ||
+        body.startsWith('unpause ') ||
+        body.startsWith('servidor ') ||
+        body.startsWith('server ')
+    );
+}
+
 function buildPhoneCandidates(digits) {
     const set = new Set();
     const add = (v) => {
@@ -214,6 +238,12 @@ const userLocks = {}; // Objeto para controlar o processamento por usuário
 
 client.on('message', async (message) => {
     if (message.isGroup || message.from === 'status@broadcast') return;
+    const bodyRaw = String(message.body || '').trim();
+    const body = bodyRaw.toLowerCase();
+
+    // Evita auto-resposta quando o atendente envia mensagem manual para cliente.
+    // Mensagens "fromMe" só passam se forem comandos administrativos.
+    if (message.fromMe && !isAdminCommand(body)) return;
 
     const contact = await message.getContact();
     const userJid = contact.id._serialized; // ID real do usuário (ex: 5511999999999@c.us)
@@ -221,8 +251,6 @@ client.on('message', async (message) => {
     const userDigits = userJid.replace('@c.us', '').replace(/\D/g, '');
 
     if (adminDigitsList.length && adminDigitsList.includes(userDigits)) {
-        const bodyRaw = message.body.trim();
-        const body = bodyRaw.toLowerCase();
         if (body.startsWith('pausar ') || body.startsWith('pause ')) {
             const digits = bodyRaw.replace(/^\S+\s+/, '').replace(/\D/g, '');
             if (!digits) {
